@@ -1,0 +1,57 @@
+[
+  {
+    "priority": 1,
+    "pattern": "^```(\\w+)?\\n",
+    "type": "code_block",
+    "extract": { "language": 1 },
+    "note": "Fenced code block opening"
+  },
+  {
+    "priority": 2,
+    "pattern": "^`[^`]+`$",
+    "type": "inline_code",
+    "note": "Single-line inline code"
+  },
+  {
+    "priority": 3,
+    "pattern": "^(@@|diff --git|---\\s|\\+\\+\\+\\s)",
+    "type": "diff",
+    "note": "Unified diff or git diff header"
+  },
+  {
+    "priority": 4,
+    "pattern": "^\\s*\\{\\s*\"tool\"\\s*:",
+    "type": "tool_call",
+    "note": "JSON tool call envelope"
+  },
+  {
+    "priority": 5,
+    "pattern": "^\\s*\\{\\s*\"tool_result\"\\s*:",
+    "type": "tool_result",
+    "note": "JSON tool result envelope"
+  },
+  {
+    "priority": 6,
+    "pattern": "^(Error:|TypeError:|ValueError:|RuntimeError:|Traceback \\(most recent)",
+    "type": "error",
+    "note": "Python / JS error or traceback"
+  },
+  {
+    "priority": 7,
+    "pattern": "^\\s*\\{\\s*\"type\"\\s*:\\s*\"agent_state\"",
+    "type": "agent_state",
+    "note": "Agent status / progress envelope"
+  },
+  {
+    "priority": 8,
+    "pattern": "^(#{1,6} |\\*\\*|__|-{3,}|\\|.+\\|)",
+    "type": "markdown",
+    "note": "Markdown heading, bold, hr, or table"
+  },
+  {
+    "priority": 99,
+    "pattern": ".",
+    "type": "plain_text",
+    "note": "Catch-all plain text"
+  }
+]

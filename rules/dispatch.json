@@ -1,0 +1,20 @@
+[
+  { "type": "code_block",  "context": "terminal",  "formatter": "CodeBlockRenderer",  "priority": 1 },
+  { "type": "code_block",  "context": "ide",       "formatter": "CodeBlockRenderer",  "priority": 1 },
+  { "type": "code_block",  "context": "api_json",  "formatter": "CodeBlockRenderer",  "priority": 1, "options": { "highlight": false } },
+  { "type": "code_block",  "context": "web_html",  "formatter": "CodeBlockRenderer",  "priority": 1 },
+  { "type": "code_block",  "context": "agent",     "formatter": "CodeBlockRenderer",  "priority": 1 },
+
+  { "type": "diff",        "context": "terminal",  "formatter": "DiffRenderer",       "priority": 1, "options": { "style": "unified" } },
+  { "type": "diff",        "context": "*",         "formatter": "DiffRenderer",       "priority": 2 },
+
+  { "type": "tool_call",   "context": "*",         "formatter": "ToolCallRenderer",   "priority": 1 },
+  { "type": "tool_result", "context": "*",         "formatter": "ToolCallRenderer",   "priority": 1 },
+  { "type": "error",       "context": "*",         "formatter": "ErrorRenderer",      "priority": 1 },
+  { "type": "agent_state", "context": "*",         "formatter": "AgentStateRenderer", "priority": 1 },
+  { "type": "markdown",    "context": "terminal",  "formatter": "MarkdownRenderer",   "priority": 1, "options": { "strip_html": true } },
+  { "type": "markdown",    "context": "*",         "formatter": "MarkdownRenderer",   "priority": 2 },
+  { "type": "inline_code", "context": "*",         "formatter": "CodeBlockRenderer",  "priority": 1 },
+  { "type": "plain_text",  "context": "*",         "formatter": "PlainTextRenderer",  "priority": 1 },
+  { "type": "*",           "context": "*",         "formatter": "FallbackHandler",    "priority": 99 }
+]
