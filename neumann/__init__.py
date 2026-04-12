@@ -6,9 +6,11 @@ from .validator import SchemaValidator
 from .registry import get_formatter
 from .pipeline import NeumannPipeline, PipelineResult
 from .streaming import StreamingController
+from .streaming_async import AsyncStreamingController
 
 __all__ = [
     "Token", "TokenType", "RenderContext", "RoutingDecision", "ValidationResult",
     "TokenClassifier", "ContextResolver", "FormatSelector", "SchemaValidator",
-    "get_formatter", "NeumannPipeline", "PipelineResult", "StreamingController",
+    "get_formatter", "NeumannPipeline", "PipelineResult",
+    "StreamingController", "AsyncStreamingController",
 ]
