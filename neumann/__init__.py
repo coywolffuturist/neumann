@@ -5,9 +5,10 @@ from .selector import FormatSelector
 from .validator import SchemaValidator
 from .registry import get_formatter
 from .pipeline import NeumannPipeline, PipelineResult
+from .streaming import StreamingController
 
 __all__ = [
     "Token", "TokenType", "RenderContext", "RoutingDecision", "ValidationResult",
     "TokenClassifier", "ContextResolver", "FormatSelector", "SchemaValidator",
-    "get_formatter", "NeumannPipeline", "PipelineResult",
+    "get_formatter", "NeumannPipeline", "PipelineResult", "StreamingController",
 ]
