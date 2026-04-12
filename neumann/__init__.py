@@ -3,10 +3,11 @@ from .classifier import TokenClassifier
 from .context import ContextResolver
 from .selector import FormatSelector
 from .validator import SchemaValidator
-from .pipeline import NeumannPipeline
+from .registry import get_formatter
+from .pipeline import NeumannPipeline, PipelineResult
 
 __all__ = [
     "Token", "TokenType", "RenderContext", "RoutingDecision", "ValidationResult",
     "TokenClassifier", "ContextResolver", "FormatSelector", "SchemaValidator",
-    "NeumannPipeline",
+    "get_formatter", "NeumannPipeline", "PipelineResult",
 ]

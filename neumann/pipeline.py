@@ -1,8 +1,9 @@
-"""NeumannPipeline — orchestrates the full classification → routing → validation flow.
+"""NeumannPipeline — orchestrates the full classification → routing → validation → render flow.
 
 Usage:
     pipeline = NeumannPipeline()
     result = pipeline.process(raw_text, env={"is_api": True})
+    print(result.rendered)
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from .classifier import TokenClassifier
 from .context import ContextResolver
 from .selector import FormatSelector
 from .validator import SchemaValidator
+from .registry import get_formatter
 from .types import Token, RenderContext, RoutingDecision, ValidationResult
 
 
@@ -24,6 +26,7 @@ class PipelineResult:
     context: RenderContext
     decision: RoutingDecision
     validation: ValidationResult
+    rendered: str
     duration_ms: float
     input_hash: str
 
@@ -51,8 +54,14 @@ class NeumannPipeline:
         token = self.classifier.classify(raw)
         context = self.resolver.resolve(env)
         decision = self.selector.select(token, context)
+
+        # Render
+        formatter = get_formatter(decision.formatter)
+        rendered = formatter.render(token, context)
+
+        # Validate rendered output
         validation = (
-            self.validator.validate(raw, self.output_schema)
+            self.validator.validate(rendered, self.output_schema)
             if self.output_schema
             else ValidationResult(valid=True)
         )
@@ -64,6 +73,7 @@ class NeumannPipeline:
             context=context,
             decision=decision,
             validation=validation,
+            rendered=rendered,
             duration_ms=round(duration_ms, 3),
             input_hash=input_hash,
         )
