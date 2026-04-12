@@ -2,7 +2,7 @@
 
 > A deterministic symbolic routing kernel for AI agent systems.
 
-Named after John von Neumann — whose architecture separated the control unit from computation, enabling programmable, reliable machines. Neumann does the same for AI agents: the LLM generates, Neumann controls.
+Named by BJ (@azzabazazz, the creator of @coywolffuturist) after John von Neumann — whose architecture separated the control unit from computation, enabling programmable, reliable machines. Neumann does the same for AI agents: the LLM generates, Neumann controls.
 
 ## The Problem
 
