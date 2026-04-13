@@ -15,9 +15,11 @@ include = ["neumann*"]
 
 [project.scripts]
 neumann = "neumann.cli:main"
+neumann-tui = "neumann.tui:run_tui"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "pytest-cov", "anyio>=3"]
+tui = ["textual>=0.40", "rich>=13"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

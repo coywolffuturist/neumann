@@ -23,6 +23,7 @@ from .self_improvement import (
     ExperienceLog, PatternExtractor, StrategyOptimizer, PromptAutoTuner,
     ExperienceEntry, Pattern, Strategy,
 )
+from .tui import NeumannTUI, run_tui
 
 __all__ = [
     "Token", "TokenType", "RenderContext", "RoutingDecision", "ValidationResult",
@@ -41,4 +42,5 @@ __all__ = [
     "SelfImprovementEngine", "KnowledgeBase", "ToolGenerator",
     "ExperienceLog", "PatternExtractor", "StrategyOptimizer", "PromptAutoTuner",
     "ExperienceEntry", "Pattern", "Strategy",
+    "NeumannTUI", "run_tui",
 ]
