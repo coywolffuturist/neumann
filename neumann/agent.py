@@ -42,6 +42,8 @@ from .tools.registry import register_defaults, execute_tool, list_tools
 from .git_tools import GitTools
 from .logger import NeumannLogger
 from .self_improvement import SelfImprovementEngine
+from .llm.router import LLMRouter, LLMConfig
+from .llm import LLMMessage, LLMResponse
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -179,6 +181,11 @@ class AgentConfig:
     model: str = "gpt-4o"
     temperature: float = 0.7
     max_tokens: int = 4096
+    llm_config: LLMConfig | None = None  # Optional: custom LLM config
+
+    # LLM provider: "ollama" | "openai" | "anthropic" | "auto"
+    # "auto" = try all available, prefer Ollama (free, local)
+    llm_provider: str = "auto"
 
     # Loop control
     max_iterations: int = 50  # Safety limit on loop iterations
@@ -226,6 +233,19 @@ class NeumannAgent:
         repo_path = Path(self.config.repo_path or ".")
         storage_dir = str(repo_path)
         self.self_improve = SelfImprovementEngine(storage_dir=storage_dir)
+
+        # LLM router
+        self.llm: LLMRouter | None = None
+        try:
+            llm_cfg = self.config.llm_config or LLMConfig(
+                default_openai_model=self.config.model,
+                default_ollama_model="qwen2.5-coder",
+                timeout=self.config.max_tokens // 10 + 60,
+            )
+            self.llm = LLMRouter(config=llm_cfg)
+            self.logger._log.debug("LLM router initialized with adapters: %s", self.llm.list_adapters())
+        except Exception as e:
+            self.logger._log.warning("LLM router not available: %s — using rule-based planning", e)
 
         # Register tools
         register_defaults()
@@ -377,19 +397,116 @@ class NeumannAgent:
     # ── thinking & planning ───────────────────────────────────────
 
     def _think_and_plan(self, task: str) -> TaskPlan:
-        """Use LLM to think about the task and create a plan."""
-        context = self._build_context()
+        """Use LLM to think about the task and create a plan.
+        
+        Tries LLM first. Falls back to rule-based planning if LLM unavailable.
+        """
+        # Try LLM-based planning first
+        if self.llm:
+            try:
+                plan = self._llm_based_plan(task)
+                if plan and plan.subtasks:
+                    self.logger._log.info("LLM-based plan created: %d steps", plan.total)
+                    return plan
+            except Exception as e:
+                self.logger._log.warning("LLM planning failed, using rule-based: %s", e)
 
-        system_prompt = THINKING_PROMPT.format(
-            tools=json.dumps(list_tools(), indent=2),
-            context=context,
+        # Fallback to rule-based planning
+        plan = self._rule_based_plan(task)
+        self.logger._log.info("Rule-based plan created: %d steps", plan.total)
+        return plan
+
+    def _llm_based_plan(self, task: str) -> TaskPlan | None:
+        """Create a plan using the LLM."""
+        context = self._build_context()
+        tools_info = json.dumps(list_tools(), indent=2)
+
+        system_prompt = f"""\
+You are Neumann Agent — an autonomous coding assistant running locally.
+You have access to tools and must plan carefully before acting.
+
+Available tools:
+{tools_info}
+
+Project context:
+{context}
+
+CRITICAL RULES:
+1. ALWAYS read a file before editing — never write blind
+2. Use the SMALLEST tool for the job
+3. Chain tools: read → edit → verify → test → commit
+4. Return ONLY valid JSON — no explanation, no markdown
+5. If you don't need tools, return empty subtasks array
+
+Format your response as EXACTLY this JSON (no other text):
+{{"summary": "brief task description", "reasoning": "your thinking", "subtasks": [{{"id": 1, "description": "step description", "tool": "tool_name", "tool_input": {{"key": "value"}}}}]}}
+"""
+
+        try:
+            response = self.llm.chat(
+                prompt=f"Task: {task}\n\nPlan the steps needed to complete this task.",
+                system_prompt=system_prompt,
+                model=self.config.model,
+                temperature=0.3,  # Lower temperature for more deterministic planning
+                max_tokens=self.config.max_tokens,
+            )
+
+            # Parse the JSON response
+            plan_data = self._parse_llm_plan(response.content, task)
+            if plan_data:
+                return plan_data
+        except Exception as e:
+            self.logger._log.warning("LLM plan generation failed: %s", e)
+
+        return None
+
+    def _parse_llm_plan(self, content: str, task: str) -> TaskPlan | None:
+        """Parse LLM response into a TaskPlan."""
+        # Extract JSON from response (may have markdown formatting)
+        json_str = content.strip()
+
+        # Remove markdown code blocks if present
+        if json_str.startswith("```"):
+            json_str = json_str.split("```", 2)[-2].strip()
+            if json_str.startswith("json"):
+                json_str = json_str[4:].strip()
+
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            # Try to find JSON object in the text
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                try:
+                    data = json.loads(content[start:end])
+                except json.JSONDecodeError:
+                    return None
+            else:
+                return None
+
+        # Validate structure
+        if "subtasks" not in data:
+            return None
+
+        plan = TaskPlan(
+            summary=data.get("summary", task),
+            reasoning=data.get("reasoning", ""),
+            subtasks=[],
+            total=0,
         )
 
-        # For now, use rule-based planning as fallback
-        # In production, this would be an LLM call
-        plan = self._rule_based_plan(task)
+        for i, st_data in enumerate(data["subtasks"], 1):
+            if isinstance(st_data, dict) and st_data.get("tool"):
+                plan.subtasks.append(SubTask(
+                    id=i,
+                    description=st_data.get("description", ""),
+                    tool=st_data.get("tool", ""),
+                    tool_input=st_data.get("tool_input", {}),
+                ))
 
-        return plan
+        plan.total = len(plan.subtasks)
+        return plan if plan.subtasks else None
 
     def _rule_based_plan(self, task: str) -> TaskPlan:
         """Create a plan using heuristic rules (LLM-independent)."""
