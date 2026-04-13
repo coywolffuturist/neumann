@@ -30,23 +30,25 @@ from . import LLMMessage, LLMResponse, LLMChunk, LLMProvider
 @dataclass
 class LLMConfig:
     """Configuration for the LLM router."""
-    # API keys (can also be set via env vars: OPENAI_API_KEY, ANTHROPIC_API_KEY)
+    # API keys (can also be set via env vars: OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY)
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
-    
+    gemini_api_key: str | None = None
+
     # Base URLs
     openai_base_url: str | None = None
     anthropic_base_url: str | None = None
     ollama_base_url: str = "http://localhost:11434"
-    
+
     # Default model per provider
     default_openai_model: str = "gpt-4o"
     default_anthropic_model: str = "claude-sonnet-4-20250514"
     default_ollama_model: str = "qwen2.5-coder"
-    
+    default_gemini_model: str = "gemini-2.0-flash"
+
     # Timeout
     timeout: int = 120
-    
+
     # Default system prompt
     system_prompt: str = (
         "You are a skilled coding assistant. "
@@ -202,6 +204,19 @@ class LLMRouter:
         except (ConnectionError, ImportError, OSError):
             pass
 
+        # Try Gemini (free tier available)
+        import os
+        gemini_key = cfg.gemini_api_key if hasattr(cfg, 'gemini_api_key') else os.environ.get("GEMINI_API_KEY")
+        if gemini_key:
+            try:
+                from .gemini_adapter import GeminiAdapter
+                self._adapters["gemini"] = GeminiAdapter(
+                    api_key=gemini_key,
+                    timeout=cfg.timeout,
+                )
+            except ImportError:
+                pass
+
     @staticmethod
     def _check_ollama(adapter: OllamaAdapter) -> None:
         """Quick check if Ollama is reachable."""
@@ -217,6 +232,13 @@ class LLMRouter:
     def _resolve_adapter(self, model: str) -> tuple[LLMAdapter | None, str]:
         """Find the right adapter for a model name."""
         model_lower = model.lower()
+
+        # Gemini models
+        if "gemini" in model_lower:
+            adapter = self._adapters.get("gemini")
+            if adapter:
+                return adapter, model
+            return None, model
 
         # OpenAI models
         if any(m in model_lower for m in ("gpt-", "o1", "o3")):
