@@ -44,7 +44,7 @@ class LLMConfig:
     default_openai_model: str = "gpt-4o"
     default_anthropic_model: str = "claude-sonnet-4-20250514"
     default_ollama_model: str = "qwen2.5-coder"
-    default_gemini_model: str = "gemini-2.0-flash"
+    default_gemini_model: str = "gemini-2.5-flash"
 
     # Timeout
     timeout: int = 120
