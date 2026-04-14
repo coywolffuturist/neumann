@@ -1,33 +1,39 @@
 """Bash tool — execute shell commands with sandbox restrictions.
 
 Sandbox:
-- allowed_paths: list of directories the command can access
-- allowed_commands: whitelist of commands (default: common safe commands)
+- allowed_paths: list of directories the command can access (arguments validated)
+- allowed_commands: whitelist of commands (no interpreters by default)
 - timeout: max execution time in seconds (default: 30)
 - max_output: max bytes of output to capture (default: 65536)
 
-Usage:
-    tool = BashTool(allowed_paths=["/home/user/project"])
-    result = tool.execute(command="ls -la /home/user/project")
+Security fixes (Issue #1):
+1. Command arguments validated against allowed_paths
+2. Destructive commands/interpreters removed from default whitelist
+3. Shell metacharacter validation prevents interpreter escape
 """
 from __future__ import annotations
 
 import os
+import re
 import subprocess
-import shutil
 from pathlib import Path
 from typing import Any
 
 from . import Tool, ToolResult
 
 
-# Default allowed commands (whitelist approach)
-_DEFAULT_ALLOWED = {
+# Safe default commands — NO interpreters, NO destructive commands
+# Interpreters (python3, node, bash -c) allow arbitrary code execution
+# Destructive commands (rm, mv, rmdir) can delete/overwrite files
+_SAFE_DEFAULT_ALLOWED = {
+    # Read-only
     "ls", "cat", "head", "tail", "wc", "find", "grep", "echo", "pwd",
     "stat", "file", "diff", "sort", "uniq", "tr", "cut", "awk", "sed",
-    "mkdir", "touch", "cp", "mv", "rm", "rmdir",
-    "python", "python3", "node", "npm", "pip", "pip3",
+    # Non-destructive write
+    "mkdir", "touch",
+    # Build/dev
     "git",
+    # Info
     "whoami", "date", "uname",
 }
 
@@ -41,11 +47,17 @@ class BashTool(Tool):
         allowed_paths: list[str] | None = None,
         timeout: int = 30,
         max_output: int = 65_536,
+        allow_shell_metacharacters: bool = False,
     ) -> None:
-        self.allowed_commands = allowed_commands or set(_DEFAULT_ALLOWED)
-        self.allowed_paths = [Path(p) for p in (allowed_paths or [os.getcwd()])]
+        self.allowed_commands = allowed_commands or set(_SAFE_DEFAULT_ALLOWED)
+        if not allowed_paths:
+            raise ValueError(
+                "BashTool requires allowed_paths — no default paths for security"
+            )
+        self.allowed_paths = [Path(p).resolve() for p in allowed_paths]
         self.timeout = timeout
         self.max_output = max_output
+        self.allow_shell_metacharacters = allow_shell_metacharacters
 
     @property
     def name(self) -> str:
@@ -73,7 +85,7 @@ class BashTool(Tool):
         if not command:
             return ToolResult(self.name, error="No command provided", success=False)
 
-        # ── Security: validate command ──────────────────────────────
+        # ── Security 1: Validate base command ──────────────────────
         cmd_parts = command.split()
         if not cmd_parts:
             return ToolResult(self.name, error="Empty command", success=False)
@@ -86,17 +98,36 @@ class BashTool(Tool):
                 success=False,
             )
 
-        # ── Security: validate working directory ────────────────────
+        # ── Security 2: Validate path arguments ────────────────────
+        path_violation = self._validate_path_arguments(cmd_parts)
+        if path_violation:
+            return ToolResult(
+                self.name,
+                error=f"Path sandbox violation: {path_violation}",
+                success=False,
+            )
+
+        # ── Security 3: Shell metacharacter validation ─────────────
+        if not self.allow_shell_metacharacters:
+            meta_violation = self._check_metacharacters(command)
+            if meta_violation:
+                return ToolResult(
+                    self.name,
+                    error=f"Shell metacharacters not allowed: {meta_violation}",
+                    success=False,
+                )
+
+        # ── Security 4: Validate working directory ─────────────────
         if working_dir:
             wd = Path(working_dir).resolve()
-            if not any(str(wd).startswith(str(p.resolve())) for p in self.allowed_paths):
+            if not self._is_within_allowed_paths(wd):
                 return ToolResult(
                     self.name,
                     error=f"Working directory '{working_dir}' not within allowed paths",
                     success=False,
                 )
         else:
-            wd = self.allowed_paths[0].resolve()
+            wd = self.allowed_paths[0]
 
         # ── Execute ─────────────────────────────────────────────────
         try:
@@ -142,3 +173,38 @@ class BashTool(Tool):
                 success=False,
                 metadata={"exception": type(e).__name__},
             )
+
+    # ── Security helpers ────────────────────────────────────────────
+
+    def _validate_path_arguments(self, cmd_parts: list[str]) -> str | None:
+        """Validate that all path-like arguments are within allowed paths."""
+        for arg in cmd_parts[1:]:
+            # Skip flags
+            if arg.startswith("-"):
+                continue
+            # Skip simple strings that aren't paths
+            if not any(c in arg for c in ("/", ".")):
+                continue
+
+            # Resolve the path
+            try:
+                resolved = Path(arg).expanduser().resolve()
+            except (OSError, ValueError):
+                continue
+
+            if not self._is_within_allowed_paths(resolved):
+                return f"Argument '{arg}' resolves to '{resolved}' outside allowed paths"
+
+        return None
+
+    def _check_metacharacters(self, command: str) -> str | None:
+        """Check for shell metacharacters that could enable code execution."""
+        dangerous = ["|", ";", "`", "$(", "&&", "||", ">", ">>", "<"]
+        for char in dangerous:
+            if char in command:
+                return f"Metacharacter '{char}' not allowed (enable allow_shell_metacharacters to allow)"
+        return None
+
+    def _is_within_allowed_paths(self, path: Path) -> bool:
+        """Check if a resolved path is within any allowed path."""
+        return any(str(path).startswith(str(p)) for p in self.allowed_paths)

@@ -80,14 +80,14 @@ class TestBashTool:
 
     def test_disallowed_command(self):
         from neumann.tools.bash import BashTool
-        tool = BashTool(allowed_commands={"ls"})
+        tool = BashTool(allowed_commands={"ls"}, allowed_paths=[os.getcwd()])
         result = tool.execute(command="rm -rf /")
         assert not result.success
         assert "not in allowed" in result.error
 
     def test_empty_command(self):
         from neumann.tools.bash import BashTool
-        tool = BashTool()
+        tool = BashTool(allowed_paths=[os.getcwd()])
         result = tool.execute(command="")
         assert not result.success
 

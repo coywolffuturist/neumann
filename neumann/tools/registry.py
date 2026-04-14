@@ -81,7 +81,7 @@ def register_defaults(repo_path: str | None = None) -> None:
 
     _REGISTRY.clear()
     _REGISTRY.update({
-        "bash":       BashTool(),
+        "bash":       BashTool(allowed_paths=roots),
         "read_file":  ReadFileTool(allowed_roots=roots),
         "write_file": WriteFileTool(allowed_roots=roots),
         "edit_file":  EditFileTool(allowed_roots=roots),
