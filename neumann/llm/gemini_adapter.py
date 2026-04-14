@@ -208,17 +208,36 @@ class GeminiAdapter(LLMAdapter):
 
     @staticmethod
     def _build_gemini_contents(messages: list[LLMMessage]) -> list:
-        """Convert LLMMessage list to Gemini content format."""
-        contents = []
+        """Convert LLMMessage list to Gemini content format.
+
+        Gemini doesn't have a 'system' role natively, so we combine
+        system messages into the first user message as a prefix.
+        This ensures safety rules and identity are NOT dropped.
+        """
+        system_parts: list[str] = []
+        contents: list = []
+
+        # Collect system messages
         for msg in messages:
             if msg.role == "system":
-                # Gemini doesn't have system role — prepend to first user message
-                # or use as a separate system instruction
-                contents.append(types.Part(text=msg.content))
+                system_parts.append(msg.content)
+
+        # Build contents: prepend system to first user message
+        system_prefix = "\n\n".join(system_parts) if system_parts else ""
+        first_user = True
+
+        for msg in messages:
+            if msg.role == "system":
+                continue  # Already handled via prefix
             elif msg.role == "user":
-                contents.append(types.Part(text=msg.content))
+                text = msg.content
+                if first_user and system_prefix:
+                    text = f"{system_prefix}\n\n---\n\n{text}"
+                    first_user = False
+                contents.append(types.Part(text=text))
             elif msg.role == "assistant":
                 contents.append(types.Part(text=msg.content))
+
         return contents
 
 

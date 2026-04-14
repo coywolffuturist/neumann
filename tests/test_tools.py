@@ -129,9 +129,9 @@ class TestWriteFileTool:
         assert result.success
         assert (tmp_path / "out.txt").read_text() == "hello"
 
-    def test_no_path(self):
+    def test_no_path(self, tmp_path):
         from neumann.tools.write_file import WriteFileTool
-        tool = WriteFileTool()
+        tool = WriteFileTool(allowed_roots=[str(tmp_path)])
         result = tool.execute(content="hello")
         assert not result.success
 

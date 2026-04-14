@@ -62,8 +62,14 @@ def execute_tool(name: str, **kwargs: Any) -> ToolResult:
         )
 
 
-def register_defaults() -> None:
-    """Register the default tool set."""
+def register_defaults(repo_path: str | None = None) -> None:
+    """Register the default tool set.
+    
+    Args:
+        repo_path: If set, file tools are sandboxed to this directory.
+                   If None, file tools use current working directory as root.
+    """
+    import os
     from .bash import BashTool
     from .read_file import ReadFileTool
     from .write_file import WriteFileTool
@@ -71,12 +77,14 @@ def register_defaults() -> None:
     from .grep import GrepTool
     from .git import GitTool
 
+    roots = [repo_path or os.getcwd()]
+
     _REGISTRY.clear()
     _REGISTRY.update({
         "bash":       BashTool(),
-        "read_file":  ReadFileTool(),
-        "write_file": WriteFileTool(),
-        "edit_file":  EditFileTool(),
-        "grep":       GrepTool(),
+        "read_file":  ReadFileTool(allowed_roots=roots),
+        "write_file": WriteFileTool(allowed_roots=roots),
+        "edit_file":  EditFileTool(allowed_roots=roots),
+        "grep":       GrepTool(allowed_roots=roots),
         "git":        GitTool(),
     })

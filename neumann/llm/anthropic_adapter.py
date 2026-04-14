@@ -47,10 +47,19 @@ class AnthropicAdapter(LLMAdapter):
         timeout: int = 120,
     ) -> None:
         self.api_key = api_key or ""
-        self.base_url = base_url
+        self.base_url = self._validate_url(base_url) if base_url else None
         self.timeout = timeout
         self._client: Any = None
         self._async_client: Any = None
+
+    @staticmethod
+    def _validate_url(url: str) -> str:
+        """Validate base URL to prevent SSRF."""
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Invalid URL scheme: {parsed.scheme}")
+        return url.rstrip("/")
 
     @property
     def provider(self) -> LLMProvider:

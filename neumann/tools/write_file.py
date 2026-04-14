@@ -27,7 +27,11 @@ class WriteFileTool(Tool):
         overwrite: bool = True,
         encoding: str = "utf-8",
     ) -> None:
-        self.allowed_roots = [Path(r) for r in (allowed_roots or [])]
+        if not allowed_roots:
+            raise ValueError(
+                "WriteFileTool requires allowed_roots — no default roots for security"
+            )
+        self.allowed_roots = [Path(r) for r in allowed_roots]
         self.max_size = max_size
         self.overwrite = overwrite
         self.encoding = encoding

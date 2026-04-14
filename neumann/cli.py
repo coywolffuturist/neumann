@@ -35,7 +35,7 @@ def _interactive(pipeline: NeumannPipeline, logger: NeumannLogger) -> None:
         print(json.dumps(logger.metrics(), indent=2))
 
 
-def _pipe_mode(pipeline: NeumannPipeline) -> None:
+def _pipe_mode(pipeline: NeumannPipeline, as_json: bool = False) -> None:
     """Read all stdin as a single input, output rendered result + JSON event."""
     raw = sys.stdin.read()
     if not raw.strip():
@@ -43,7 +43,7 @@ def _pipe_mode(pipeline: NeumannPipeline) -> None:
         sys.exit(1)
     result = pipeline.process(raw)
     print(result.rendered)
-    if "--json" in sys.argv:
+    if as_json:
         print("\n--- event ---")
         print(json.dumps({
             "token_type": result.token.type.value,
@@ -105,7 +105,7 @@ def main() -> None:
     if sys.stdin.isatty():
         _interactive(pipeline, logger)
     else:
-        _pipe_mode(pipeline)
+        _pipe_mode(pipeline, as_json=args.as_json)
 
 
 if __name__ == "__main__":

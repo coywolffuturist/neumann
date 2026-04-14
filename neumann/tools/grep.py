@@ -28,7 +28,12 @@ class GrepTool(Tool):
         max_results: int = 100,
         encoding: str = "utf-8",
     ) -> None:
-        self.allowed_roots = [Path(r) for r in (allowed_roots or [])]
+        # Require explicit allowed_roots — no fallback to cwd
+        if not allowed_roots:
+            raise ValueError(
+                "GrepTool requires allowed_roots — no default roots for security"
+            )
+        self.allowed_roots = [Path(r) for r in allowed_roots]
         self.max_files = max_files
         self.max_results = max_results
         self.encoding = encoding

@@ -115,41 +115,55 @@ class AgentMemory:
 
     def get_context(self) -> list[dict[str, str]]:
         """Get the conversation context for the next LLM call.
-        
+
         Returns messages in the format expected by LLM adapters,
-        respecting the token budget.
+        respecting the token budget. Order:
+        1. System prompt
+        2. Summary (if exists)
+        3. Recent history (within token budget)
+        4. Working memory (injected as system context)
         """
         messages: list[dict[str, str]] = []
 
-        # System prompt first
+        # 1. System prompt first
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
 
-        # Add summary if exists
+        # 2. Summary before history
         if self._summary.text:
             messages.append({
                 "role": "system",
                 "content": f"[Summary of earlier conversation]\n{self._summary.text}",
             })
 
-        # Add recent history within token budget
-        current_tokens = sum(m["role"] == "system" for m in messages) * 10  # rough estimate
+        # 3. Add recent history within token budget
+        current_tokens = self._estimate_tokens(self.system_prompt) + self._summary.token_estimate
         for entry in reversed(self._history):
             entry_tokens = self._estimate_tokens(entry.content)
             if current_tokens + entry_tokens > self.max_tokens:
                 break
-            messages.insert(1, {"role": entry.role, "content": entry.content})
+            messages.insert(len(messages) - len([m for m in messages if m["role"] == "system"]),
+                           {"role": entry.role, "content": entry.content})
             current_tokens += entry_tokens
 
-        # If working memory has content, inject as system context
+        # Rebuild messages in correct order
+        final: list[dict[str, str]] = []
+        for m in messages:
+            if m["role"] == "system":
+                final.append(m)
+        for m in messages:
+            if m["role"] != "system":
+                final.append(m)
+
+        # 4. Working memory as trailing system context
         if self._working_memory:
             wm_text = json.dumps(self._working_memory, indent=2)
-            messages.append({
+            final.append({
                 "role": "system",
                 "content": f"[Working Memory]\n{wm_text}",
             })
 
-        return messages
+        return final
 
     def get_history(self) -> list[MemoryEntry]:
         """Get the full conversation history."""

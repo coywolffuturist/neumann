@@ -248,7 +248,7 @@ class NeumannAgent:
             self.logger._log.warning("LLM router not available: %s — using rule-based planning", e)
 
         # Register tools
-        register_defaults()
+        register_defaults(repo_path=self.config.repo_path)
 
         # Git tools (if repo path is set)
         self.git: GitTools | None = None

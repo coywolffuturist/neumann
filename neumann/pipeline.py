@@ -180,7 +180,7 @@ class NeumannPipeline:
         input_hash = "sha256:" + hashlib.sha256(raw.encode()).hexdigest()[:12]
 
         # Ensure tools are registered
-        from .tools.registry import _REGISTRY as TOOL_REGISTRY
+        from .tools.registry import _REGISTRY as TOOL_REGISTRY, register_defaults
         if not TOOL_REGISTRY:
             register_defaults()
 

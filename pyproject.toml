@@ -9,6 +9,7 @@ description = "Deterministic symbolic routing kernel for AI agent systems"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+dependencies = []
 
 [tool.setuptools.packages.find]
 include = ["neumann*"]

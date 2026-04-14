@@ -39,8 +39,23 @@ class OllamaAdapter(LLMAdapter):
         base_url: str = "http://localhost:11434",
         timeout: int = 300,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
+        self.base_url = self._validate_url(base_url)
         self.timeout = timeout
+
+    @staticmethod
+    def _validate_url(url: str) -> str:
+        """Validate URL to prevent SSRF attacks."""
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Invalid scheme for Ollama URL: {parsed.scheme}")
+        # Only allow localhost/local addresses
+        hostname = parsed.hostname or ""
+        if hostname not in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+            raise ValueError(
+                f"Ollama URL must point to localhost. Got: {hostname}"
+            )
+        return url.rstrip("/")
 
     @property
     def provider(self) -> LLMProvider:
@@ -127,10 +142,56 @@ class OllamaAdapter(LLMAdapter):
         max_tokens: int = 4096,
         **kwargs: Any,
     ) -> AsyncGenerator[LLMChunk, None]:
-        # Use sync streaming in async context for simplicity
-        # In production, use aiohttp or httpx
-        for chunk in self.stream(messages, model, temperature, max_tokens, **kwargs):
-            yield chunk
+        """Async streaming using asyncio-compatible HTTP calls."""
+        import asyncio
+        import aiohttp
+
+        ollama_msgs = [{"role": m.role, "content": m.content} for m in messages]
+        url = f"{self.base_url}/api/chat"
+        payload = {
+            "model": model,
+            "messages": ollama_msgs,
+            "stream": True,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+        payload["options"].update(kwargs)
+
+        buffer = b""
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=payload) as resp:
+                async for chunk_bytes in resp.content.iter_any():
+                    buffer += chunk_bytes
+                    while b"\n" in buffer:
+                        line, buffer = buffer.split(b"\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                            message = obj.get("message", {})
+                            content = message.get("content", "")
+                            if content:
+                                yield LLMChunk(delta=content)
+                            if obj.get("done"):
+                                yield LLMChunk(
+                                    finish_reason="stop",
+                                    usage=LLMUsage(
+                                        prompt_tokens=obj.get("prompt_eval_count", 0),
+                                        completion_tokens=obj.get("eval_count", 0),
+                                        total_tokens=(
+                                            obj.get("prompt_eval_count", 0)
+                                            + obj.get("eval_count", 0)
+                                        ),
+                                    ),
+                                )
+                        except json.JSONDecodeError:
+                            pass
+                    # Yield control to event loop
+                    await asyncio.sleep(0)
 
     # ── HTTP helpers ──────────────────────────────────────────────────────
 
@@ -165,7 +226,11 @@ class OllamaAdapter(LLMAdapter):
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 buffer = b""
-                for chunk in resp.read(4096):
+                # resp.read(N) returns bytes — iterate by calling it repeatedly
+                while True:
+                    chunk = resp.read(4096)
+                    if not chunk:
+                        break
                     buffer += chunk
                     # Process complete JSON objects from buffer
                     while b"\n" in buffer:

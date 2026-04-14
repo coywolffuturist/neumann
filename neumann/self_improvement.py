@@ -458,7 +458,8 @@ class PromptAutoTuner:
         error_counter: dict[str, int] = {}
         for e in entries:
             for err in e.errors:
-                key = err[:80]  # truncate
+                # Sanitize: truncate and escape special chars
+                key = self._sanitize(err[:80])
                 error_counter[key] = error_counter.get(key, 0) + 1
         return [(err, count) for err, count in error_counter.items() if count >= 2]
 
@@ -474,6 +475,13 @@ class PromptAutoTuner:
             for t, successes in by_type.items()
             if len(successes) >= 2
         }
+
+    @staticmethod
+    def _sanitize(text: str) -> str:
+        """Sanitize text to prevent prompt injection."""
+        text = text.replace("{", "[").replace("}", "]")
+        text = text.replace("<", "&lt;").replace(">", "&gt;")
+        return text
 
     @property
     def adjustment_history(self) -> list[dict[str, Any]]:
