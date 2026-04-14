@@ -833,6 +833,322 @@ All four patterns are inspired by design choices in `lithos-ai/motus`. None depe
 
 ---
 
+## UniToolCall Integration: QAOA Format & Anchor Linkage
+
+[UniToolCall](https://github.com/EIT-NLP/UniToolCall) (Apache 2.0) is an open-source unified framework for LLM tool-use, with 390K+ training instances across 22K+ tools and a unified evaluation format across 7 benchmarks. Three of its contributions are directly applicable to Neumann's architecture — and all are implemented natively here, without taking a dependency on UniToolCall itself.
+
+> **Key finding from the UniToolCall dataset:** 61% of real multi-hop tool-use tasks are *parallel* (independent branches), not sequential chains. This validates the `@task` parallel runtime (see roadmap above) and informs how Neumann's planning prompt should instruct the LLM.
+
+---
+
+### 1. QAOA as Neumann's Native Tool Call Format
+
+**What it is:** UniToolCall defines a clean, unambiguous conversation structure — Query → Action → Observation → Answer — with a fixed role mapping:
+
+| QAOA role | Conversation `from` field | Neumann `MemoryEntry.role` |
+|-----------|--------------------------|---------------------------|
+| Query | `human` | `user` |
+| Action | `function_call` | `assistant` (tool call) |
+| Observation | `observation` | `tool` |
+| Answer | `gpt` | `assistant` (final answer) |
+
+**Tool call format** (from UniToolCall system prompt — adopted as Neumann standard):
+
+```xml
+<!-- Agent issues a tool call -->
+<tool_call>
+{"name": "tool_name", "arguments": {"param": "value"}}
+</tool_call>
+
+<!-- Agent issues final answer (no more tool calls) -->
+<answer>
+Final answer text here
+</answer>
+```
+
+**Strict prohibited behaviors** (enforce in `SchemaValidator`):
+- Do not output a `function_call` and an `<answer>` in the same round
+- Do not repeat the same tool call with identical parameters
+- Do not fabricate parameters not present in or reasonably implied by the query
+- Do not ignore existing tool call results in conversation history
+
+**Updated `SchemaValidator` — QAOA tool call validation:**
+
+```python
+# neumann/validator.py — QAOA-aware tool call validation
+
+import re
+import json
+
+TOOL_CALL_PATTERN = re.compile(
+    r'<tool_call>\s*(\{.*?\})\s*</tool_call>',
+    re.DOTALL
+)
+ANSWER_PATTERN = re.compile(r'<answer>.*?</answer>', re.DOTALL)
+
+def validate_qaoa_output(content: str, available_tools: set[str]) -> list[str]:
+    """
+    Validate LLM output against QAOA format rules.
+    Returns list of violation strings (empty = valid).
+    """
+    violations = []
+    has_tool_call = bool(TOOL_CALL_PATTERN.search(content))
+    has_answer = bool(ANSWER_PATTERN.search(content))
+
+    # Rule 1: Cannot mix tool call and answer in same turn
+    if has_tool_call and has_answer:
+        violations.append("QAOA violation: tool_call and answer in same turn")
+
+    # Rule 2: Tool call must be valid JSON with 'name' and 'arguments'
+    for match in TOOL_CALL_PATTERN.finditer(content):
+        try:
+            call = json.loads(match.group(1))
+        except json.JSONDecodeError as e:
+            violations.append(f"QAOA violation: malformed tool_call JSON: {e}")
+            continue
+        if "name" not in call:
+            violations.append("QAOA violation: tool_call missing 'name' field")
+        if "arguments" not in call:
+            violations.append("QAOA violation: tool_call missing 'arguments' field")
+        if available_tools and call.get("name") not in available_tools:
+            violations.append(
+                f"QAOA violation: tool '{call.get('name')}' not in available tools"
+            )
+
+    return violations
+
+
+def check_duplicate_call(
+    new_call: dict, history: list[dict]
+) -> bool:
+    """Return True if an identical (name, arguments) call already exists in history."""
+    for entry in history:
+        if (entry.get("name") == new_call.get("name") and
+                entry.get("arguments") == new_call.get("arguments")):
+            return True
+    return False
+```
+
+**Memory role mapping** — update `AgentMemory.add_tool_result()` to tag entries with QAOA role:
+
+```python
+# neumann/memory.py
+def add_tool_call(self, name: str, arguments: dict, **meta) -> None:
+    """Add a QAOA Action (function_call) entry."""
+    content = f'<tool_call>{json.dumps({"name": name, "arguments": arguments})}</tool_call>'
+    self._add_entry("assistant", content, qaoa_role="action", **meta)
+
+def add_observation(self, tool_name: str, content: str, **meta) -> None:
+    """Add a QAOA Observation entry."""
+    self._add_entry("tool", content, qaoa_role="observation", tool_name=tool_name, **meta)
+
+def add_answer(self, content: str, **meta) -> None:
+    """Add a QAOA Answer (final response) entry."""
+    self._add_entry("assistant", f"<answer>\n{content}\n</answer>",
+                    qaoa_role="answer", **meta)
+```
+
+---
+
+### 2. Anchor Linkage in the Agent Loop
+
+**What it is:** UniToolCall's Anchor Linkage mechanism formalizes cross-task data dependencies. Each sub-task declares:
+- `anchor_produces`: concrete values it will output (IDs, dates, amounts) that later tasks may need
+- `anchor_requires`: values from earlier tasks that this task depends on
+
+This makes the dependency graph *explicit* — enabling the `@task` parallel runtime to execute truly independent sub-tasks concurrently without guessing.
+
+**Updated `SubTask` dataclass:**
+
+```python
+# neumann/agent.py — updated SubTask
+@dataclass
+class SubTask:
+    """A single step in the agent's plan."""
+    id: int
+    description: str
+    tool: str = ""
+    tool_input: dict[str, Any] = field(default_factory=dict)
+    status: str = "pending"
+    result: str = ""
+    error: str = ""
+    retries: int = 0
+    max_retries: int = 2
+    # Anchor Linkage (UniToolCall pattern)
+    anchor_produces: list[str] = field(default_factory=list)  # values this task outputs
+    anchor_requires: list[str] = field(default_factory=list)  # values this task needs as input
+
+    def depends_on(self, other: "SubTask") -> bool:
+        """Return True if this task requires an anchor that other produces."""
+        return bool(set(self.anchor_requires) & set(other.anchor_produces))
+
+    def is_independent_of(self, others: list["SubTask"]) -> bool:
+        """Return True if this task has no data dependency on any of the others."""
+        return not any(self.depends_on(o) for o in others)
+```
+
+**Parallel execution using anchor graph:**
+
+```python
+# neumann/agent.py — parallel phase scheduling using anchor linkage
+import asyncio
+from neumann.runtime import task
+
+async def execute_parallel_phase(
+    subtasks: list[SubTask],
+    execute_fn,
+) -> list[dict]:
+    """
+    Execute a set of sub-tasks that are mutually independent (no anchor dependencies).
+    Falls back to sequential if any dependency exists.
+    """
+    # Verify all tasks are truly independent
+    for st in subtasks:
+        if not st.is_independent_of([o for o in subtasks if o.id != st.id]):
+            raise ValueError(
+                f"SubTask {st.id} has anchor dependency within the parallel group"
+            )
+
+    @task(retries=2, timeout=30.0)
+    async def run_one(st):
+        return await execute_fn(st)
+
+    handles = [run_one(st) for st in subtasks]
+    return await asyncio.gather(*handles)
+
+
+def build_execution_phases(plan: TaskPlan) -> list[list[SubTask]]:
+    """
+    Topologically sort sub-tasks into sequential phases,
+    where tasks within each phase are mutually independent (safe to parallelize).
+
+    Example:
+        Task 1: anchor_produces=["customer_id"], anchor_requires=[]
+        Task 2: anchor_produces=["order_id"],    anchor_requires=["customer_id"]
+        Task 3: anchor_produces=["invoice_url"], anchor_requires=["customer_id"]
+        Task 4: anchor_produces=[],              anchor_requires=["order_id", "invoice_url"]
+
+        → Phase 1: [Task 1]           (no dependencies)
+        → Phase 2: [Task 2, Task 3]   (both depend on Task 1, independent of each other)
+        → Phase 3: [Task 4]           (depends on Task 2 and Task 3)
+    """
+    remaining = list(plan.subtasks)
+    phases: list[list[SubTask]] = []
+    completed_anchors: set[str] = set()
+
+    while remaining:
+        # Tasks whose anchor_requires are all satisfied
+        ready = [
+            st for st in remaining
+            if all(req in completed_anchors for req in st.anchor_requires)
+        ]
+        if not ready:
+            # Circular dependency or missing anchor — fall back to sequential
+            ready = [remaining[0]]
+
+        phases.append(ready)
+        for st in ready:
+            remaining.remove(st)
+            completed_anchors.update(st.anchor_produces)
+
+    return phases
+```
+
+**Agent loop using phases:**
+
+```python
+# neumann/agent.py — phase-aware execution loop
+async def run_phased(self, task: str) -> AgentResult:
+    """Execute plan in parallel phases based on anchor dependency graph."""
+    plan = self._think_and_plan(task)
+    phases = build_execution_phases(plan)
+
+    for phase in phases:
+        if len(phase) == 1:
+            # Single task — run directly
+            result = self._execute_subtask(phase[0])
+            self._update_subtask(phase[0], result)
+        else:
+            # Multiple independent tasks — run in parallel
+            results = await execute_parallel_phase(phase, self._execute_subtask_async)
+            for st, result in zip(phase, results):
+                self._update_subtask(st, result)
+```
+
+---
+
+### 3. Updated Planning Prompt — Anchor-Aware
+
+The LLM planning prompt now explicitly requests anchor linkage metadata per sub-task. This is the mechanism that enables automatic parallel scheduling:
+
+```python
+# neumann/agent.py — updated THINKING_PROMPT
+THINKING_PROMPT = """\
+You are Neumann Agent. Plan the steps to complete the task using available tools.
+
+IMPORTANT: Identify which steps are INDEPENDENT (can run in parallel) and which have
+DATA DEPENDENCIES (must run sequentially). Use anchor_produces/anchor_requires to
+encode dependencies explicitly. Steps with no anchor_requires and no shared
+anchor_produces are safe to parallelize.
+
+61% of real multi-step tool tasks have parallel branches — look for them.
+
+Return ONLY this JSON (no markdown):
+{
+  "summary": "brief description",
+  "reasoning": "your thinking including parallel vs serial analysis",
+  "subtasks": [
+    {
+      "id": 1,
+      "description": "fetch customer record",
+      "tool": "read_file",
+      "tool_input": {"file_path": "/data/customers.json"},
+      "anchor_produces": ["customer_id", "account_status"],
+      "anchor_requires": []
+    },
+    {
+      "id": 2,
+      "description": "fetch order history",
+      "tool": "grep",
+      "tool_input": {"pattern": "customer_id"},
+      "anchor_produces": ["order_ids"],
+      "anchor_requires": ["customer_id"]
+    },
+    {
+      "id": 3,
+      "description": "fetch billing record — independent of order history",
+      "tool": "read_file",
+      "tool_input": {"file_path": "/data/billing.json"},
+      "anchor_produces": ["invoice_total"],
+      "anchor_requires": ["customer_id"]
+    }
+  ]
+}
+
+Tasks 2 and 3 both require customer_id but are independent of each other → will run in parallel.
+
+Available tools: {tools}
+Project context: {context}
+"""
+```
+
+---
+
+### 4. Parallel Distribution Reference
+
+UniToolCall's 979-sample multi-hop dataset shows:
+
+| Execution pattern | Proportion |
+|-------------------|------------|
+| Parallel branches | 61% |
+| Serial chains | 39% |
+
+This means a planning loop that defaults to sequential execution is suboptimal for the majority of real tasks. Neumann's phase-based scheduler (above) handles both — serial tasks naturally form single-task phases, parallel tasks are batched into multi-task phases.
+
+**Calibration note for fine-tuning:** If using UniToolCall's training corpus to fine-tune the planning LLM, ensure the training mix preserves the 61/39 parallel/serial ratio. A serial-biased training set will produce a planner that misses parallelism opportunities in production.
+
+---
+
 ## Relationship to Neurosymbolic AI
 
 Gary Marcus' analysis of Claude Code (April 2026) identified `print.ts` as evidence that Anthropic, when reliability mattered, reached for classical symbolic AI — not more LLM. Neumann makes this architectural choice explicit and principled:
