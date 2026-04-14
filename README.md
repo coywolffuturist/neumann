@@ -266,11 +266,55 @@ neumann --metrics
 neumann --config my_config.json
 ```
 
+### 🔍 Project Scanner (Agent's "Eyes" on Codebase)
+```python
+from neumann import ProjectScanner
+
+scanner = ProjectScanner("/home/user/project")
+scanner.scan(analyze=True)
+
+# Project overview
+summary = scanner.summary()
+print(summary["total_files"])   # 310
+print(summary["total_lines"])   # 28400
+print(summary["languages"])     # {"python": {"files": 45, ...}}
+
+# Search across entire codebase
+matches = scanner.search("authentication")
+# → Finds files, symbols (class AuthMiddleware), imports, docstrings
+
+# Dependency graph
+deps = scanner.get_dependencies("main.py")       # Files main.py depends on
+dependents = scanner.get_dependents("models.py") # Files that import models
+
+# Build LLM context — structured text for prompt injection
+context = scanner.build_llm_context(max_tokens=8000)
+# → Includes: project overview, file tree, symbols per file, dependency graph
+
+# Persistent cache for fast re-scans
+scanner.save_cache(".neumann/scan_cache.json")
+scanner.load_cache(".neumann/scan_cache.json")
+```
+
+**Agent Integration:** NeumannAgent automatically scans the project on init. The scanner's context is injected into the LLM planning prompt so the agent understands the entire codebase — not just one file at a time.
+
+```python
+from neumann import NeumannAgent
+
+# Agent scans project automatically
+agent = NeumannAgent(repo_path="/home/user/project")
+# → "Project scanned: 310 files, 1200 symbols, 0.82s"
+
+# Agent now has full project context when planning
+result = agent.run("Add error handling to all API endpoints")
+# → Agent sees all files, imports, classes, functions across the project
+```
+
 ---
 
 ## Complete Module Index
 
-### Core (12 modules)
+### Core (13 modules)
 | Module | Purpose |
 |---|---|
 | `types.py` | Token, TokenType, RenderContext, RoutingDecision, ValidationResult |
@@ -285,6 +329,7 @@ neumann --config my_config.json
 | `logger.py` | Structured observability + metrics |
 | `config.py` | Environment-based configuration |
 | `templates.py` | Prompt template engine with variables |
+| `scanner.py` | **Project scanner — file tree, AST analysis, dependency graph, LLM context builder** |
 
 ### Formatters (8 modules)
 `CodeBlockRenderer` · `DiffRenderer` · `ToolCallRenderer` · `ErrorRenderer` · `MarkdownRenderer` · `AgentStateRenderer` · `PlainTextRenderer` · `FallbackHandler`
@@ -292,11 +337,11 @@ neumann --config my_config.json
 ### Tools (7 modules)
 `bash` · `read_file` · `write_file` · `edit_file` · `grep` · `git` · `registry`
 
-### LLM (6 modules)
-`adapter.py` (base) · `openai_adapter.py` · `anthropic_adapter.py` · `ollama_adapter.py` · `router.py`
+### LLM (7 modules)
+`adapter.py` (base) · `openai_adapter.py` · `anthropic_adapter.py` · `gemini_adapter.py` · `ollama_adapter.py` · `router.py`
 
-### Agent (5 modules)
-`agent.py` (NeumannAgent loop) · `memory.py` (conversation history) · `advanced_prompts.py` (6-layer engine) · `self_improvement.py` (recursive learning) · `git_tools.py` (full git operations)
+### Agent (6 modules)
+`agent.py` (NeumannAgent loop + project scanner integration) · `memory.py` (conversation history) · `advanced_prompts.py` (6-layer engine) · `self_improvement.py` (recursive learning) · `git_tools.py` (full git operations) · `scanner.py` (codebase indexer)
 
 ### CLI (2 modules)
 `cli.py` · `__main__.py`
@@ -354,12 +399,12 @@ Neither replaces the other. Together they are more reliable than either alone.
 ## Test Results
 
 ```
-279 passed in 47.73s — 0 failures
+310 passed in 30.66s — 0 failures
 
 Original tests:     66 (from GitHub repo)
-New tests added:   213
-Test files:         14
-Coverage:           All modules, all formatters, all tools, all LLM adapters, agent loop, self-improvement
+New tests added:   244
+Test files:         15
+Coverage:           All modules, all formatters, all tools, all LLM adapters, agent loop, self-improvement, project scanner
 ```
 
 ---
@@ -368,15 +413,16 @@ Coverage:           All modules, all formatters, all tools, all LLM adapters, ag
 
 ```
 neumann/
-├── neumann/                    # Source code (35+ modules)
+├── neumann/                    # Source code (40+ modules)
 │   ├── core:        types, classifier, context, selector, validator
 │   ├── formatters/  8 formatters (code, diff, error, tool_call, ...)
 │   ├── tools/       6 executable tools (bash, file ops, grep, git)
-│   ├── llm/         3 LLM adapters + router
-│   ├── agent modules: agent, memory, advanced_prompts, self_improvement
+│   ├── llm/         4 LLM adapters + router (OpenAI, Anthropic, Gemini, Ollama)
+│   ├── agent:       agent loop, memory, advanced prompts, self-improvement
+│   ├── scanner.py   Project scanner — file tree, AST, dependency graph, LLM context
 │   ├── infrastructure: logger, config, templates, git_tools
-│   └── cli:         cli.py, __main__.py
-├── tests/           14 test files, 279 tests
+│   └── cli:         cli.py, __main__.py, tui.py
+├── tests/           15 test files, 310 tests
 ├── rules/           token_rules.json, dispatch.json
 └── pyproject.toml
 ```
@@ -385,7 +431,7 @@ neumann/
 
 ## Status
 
-Production-ready. 279 passing tests. Fully autonomous coding agent with self-improvement.
+Production-ready. 310 passing tests. Fully autonomous coding agent with self-improvement and project-wide codebase understanding.
 
 Contributions welcome.
 
