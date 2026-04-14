@@ -24,12 +24,21 @@ from ..git_tools import GitTools
 class GitTool(Tool):
     """Git operations as a Neumann tool."""
 
+    # Default blocked branches for push/commit (issue #5)
+    DEFAULT_BLOCKED_BRANCHES = {"main", "master", "production", "release", "stable"}
+    # Default allowed remotes (issue #5)
+    DEFAULT_ALLOWED_REMOTES = {"origin", "upstream"}
+
     def __init__(
         self,
         repo_path: str | None = None,
         timeout: int = 30,
+        blocked_branches: set[str] | None = None,
+        allowed_remotes: set[str] | None = None,
     ) -> None:
         self._git = GitTools(repo_path=repo_path, timeout=timeout)
+        self._blocked_branches = blocked_branches or set(self.DEFAULT_BLOCKED_BRANCHES)
+        self._allowed_remotes = allowed_remotes or set(self.DEFAULT_ALLOWED_REMOTES)
 
     @property
     def name(self) -> str:
@@ -166,6 +175,24 @@ class GitTool(Tool):
             elif action == "push":
                 remote = kwargs.get("remote", "origin")
                 branch = kwargs.get("branch")
+
+                # Security: validate remote (issue #5)
+                if remote not in self._allowed_remotes:
+                    return ToolResult(
+                        self.name,
+                        error=f"Remote '{remote}' not in allowed remotes: {sorted(self._allowed_remotes)}",
+                        success=False,
+                    )
+
+                # Security: validate branch (issue #5)
+                current_branch = branch or git.current_branch()
+                if current_branch in self._blocked_branches:
+                    return ToolResult(
+                        self.name,
+                        error=f"Cannot push to blocked branch '{current_branch}'. Blocked branches: {sorted(self._blocked_branches)}",
+                        success=False,
+                    )
+
                 result = git.push(remote=remote, branch=branch)
                 if result["success"]:
                     return ToolResult(self.name, output=result["output"] or "Pushed successfully.", success=True)
@@ -174,6 +201,15 @@ class GitTool(Tool):
             elif action == "pull":
                 remote = kwargs.get("remote", "origin")
                 branch = kwargs.get("branch")
+
+                # Security: validate remote (issue #5)
+                if remote not in self._allowed_remotes:
+                    return ToolResult(
+                        self.name,
+                        error=f"Remote '{remote}' not in allowed remotes: {sorted(self._allowed_remotes)}",
+                        success=False,
+                    )
+
                 result = git.pull(remote=remote, branch=branch)
                 if result["success"]:
                     return ToolResult(self.name, output=result["output"] or "Pulled successfully.", success=True)

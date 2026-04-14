@@ -507,9 +507,16 @@ class ToolGenerator:
         python_code: str,
     ) -> dict[str, Any]:
         """Create a new tool from Python code.
-        
+
         The code should define a class that inherits from Tool.
+        Code is validated via AST parsing and dangerous pattern detection
+        before being saved (Issue #3 fix).
         """
+        # Validate code before accepting
+        validation_error = self._validate_code(python_code)
+        if validation_error:
+            raise ValueError(f"Generated code rejected: {validation_error}")
+
         tool_info = {
             "name": name,
             "description": description,
@@ -551,6 +558,56 @@ class ToolGenerator:
             self.tools_dir.mkdir(parents=True, exist_ok=True)
             path = self.tools_dir / f"generated_{name}.py"
             path.write_text(code)
+
+    def _validate_code(self, code: str) -> str | None:
+        """Validate generated tool code for safety.
+
+        Returns error message if code is dangerous, None if safe.
+        """
+        # 1. AST parsing — reject syntactically invalid code
+        import ast
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as e:
+            return f"Syntax error: {e}"
+
+        # 2. Dangerous function names blocklist
+        dangerous_calls = {
+            "exec", "eval", "compile", "__import__", "getattr", "setattr",
+            "delattr", "globals", "locals", "vars",
+        }
+        dangerous_imports = {
+            "importlib", "ctypes", "pickle", "marshal", "shelve",
+        }
+
+        for node in ast.walk(tree):
+            # Check for dangerous function calls
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id in dangerous_calls:
+                    return f"Dangerous function call: {node.func.id}()"
+                if isinstance(node.func, ast.Attribute) and node.func.attr in dangerous_calls:
+                    return f"Dangerous method call: .{node.func.attr}()"
+
+            # Check for dangerous imports
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in dangerous_imports:
+                        return f"Dangerous import: {alias.name}"
+            if isinstance(node, ast.ImportFrom):
+                if node.module and node.module.split(".")[0] in dangerous_imports:
+                    return f"Dangerous import: from {node.module}"
+
+        # 3. Text-based pattern matching for additional dangerous patterns
+        dangerous_patterns = [
+            "os.system(", "os.popen(", "subprocess.call(",
+            "subprocess.Popen(", "__builtins__",
+            "exec(", "eval(", "compile(",
+        ]
+        for pattern in dangerous_patterns:
+            if pattern in code:
+                return f"Dangerous pattern found: {pattern}"
+
+        return None
 
     def generate_from_description(
         self, description: str
@@ -746,22 +803,30 @@ class SelfImprovementEngine:
         }
 
     def load(self, path: str | Path | None = None) -> dict[str, int]:
-        """Load self-improvement data."""
+        """Load self-improvement data with schema validation."""
         load_path = Path(path) if path else (self._storage / "self_improve.json" if self._storage else None)
         if not load_path or not load_path.exists():
             return {"status": 0}
 
-        data = json.loads(load_path.read_text())
+        raw = json.loads(load_path.read_text())
+        data = self._validate_and_sanitize(raw)
 
         # Restore experience log
         self.experience_log._entries = [
             ExperienceEntry(**e) for e in data.get("experience_log", [])
+            if isinstance(e, dict) and "id" in e
         ]
 
-        # Restore knowledge base
+        # Restore knowledge base (only known categories)
         kb_data = data.get("knowledge_base", {})
-        for cat, items in kb_data.items():
-            self.knowledge_base._lessons[cat] = items
+        known_categories = {
+            "learned_patterns", "failed_approaches", "successful_strategies",
+            "tool_effectiveness", "file_knowledge", "user_preferences", "custom_facts",
+        }
+        for cat in known_categories:
+            items = kb_data.get(cat, {})
+            if isinstance(items, dict):
+                self.knowledge_base._lessons[cat] = items
 
         # Rebuild strategy cache
         self.strategy_optimizer._rebuild_cache()
@@ -770,6 +835,23 @@ class SelfImprovementEngine:
             "experiences": len(self.experience_log.get_all()),
             "knowledge_entries": sum(len(v) for v in self.knowledge_base._lessons.values()),
         }
+
+    @staticmethod
+    def _validate_and_sanitize(raw: Any) -> dict[str, Any]:
+        """Validate loaded JSON and sanitize structure."""
+        if not isinstance(raw, dict):
+            raise ValueError("Loaded data must be a JSON object")
+
+        # Ensure required top-level keys exist
+        sanitized: dict[str, Any] = {}
+        for key in ("experience_log", "knowledge_base", "generated_tools", "prompt_adjustments"):
+            val = raw.get(key, [])
+            if not isinstance(val, (dict, list)):
+                raise ValueError(f"Invalid type for '{key}': expected dict or list, got {type(val).__name__}")
+            sanitized[key] = val
+
+        # Remove unknown keys
+        return sanitized
 
     # ── introspection ─────────────────────────────────────────────
 

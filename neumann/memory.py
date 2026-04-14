@@ -260,5 +260,15 @@ class AgentMemory:
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """Rough token estimate: ~4 chars per token for English."""
-        return len(text) // 4 + 1
+        """Estimate token count using tiktoken if available, with fallback.
+        
+        Fallback: ~4 chars per token for English text (conservative).
+        """
+        try:
+            import tiktoken
+            enc = tiktoken.get_encoding("cl100k_base")
+            return len(enc.encode(text))
+        except (ImportError, Exception):
+            # Fallback: conservative estimate for non-English/code
+            # Code and CJK text use more tokens per character
+            return len(text) // 3 + 1

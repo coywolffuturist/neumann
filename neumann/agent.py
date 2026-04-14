@@ -170,6 +170,10 @@ Previous attempt: {previous}
 """
 
 
+# Tools considered destructive — require human confirmation
+DESTRUCTIVE_TOOLS = {"bash", "write_file", "edit_file", "git"}
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Agent Configuration
 # ═══════════════════════════════════════════════════════════════════
@@ -189,6 +193,7 @@ class AgentConfig:
 
     # Loop control
     max_iterations: int = 50  # Safety limit on loop iterations
+    timeout_seconds: float = 300.0  # 5 minute wall-clock hard limit (issue #7)
     max_subtask_retries: int = 2  # Retries per sub-task before skipping
 
     # Safety
@@ -280,6 +285,9 @@ class NeumannAgent:
         start = time.perf_counter()
         self.logger._log.info("Agent starting: %s", task)
 
+        # Sanitize task input to prevent prompt injection (issue #4)
+        task = self._sanitize_task_input(task)
+
         self._status = AgentStatus.THINKING
         self.memory.add_user(task)
 
@@ -303,11 +311,37 @@ class NeumannAgent:
         errors: list[str] = []
 
         for iteration in range(self.config.max_iterations):
+            # Wall-clock timeout check (issue #7)
+            elapsed = time.perf_counter() - start
+            if elapsed > self.config.timeout_seconds:
+                self.logger._log.warning("Agent timed out after %.1fs", elapsed)
+                self._status = AgentStatus.ERROR
+                return AgentResult(
+                    task=task,
+                    status="timeout",
+                    plan=plan,
+                    errors=[f"Timed out after {elapsed:.1f}s (limit: {self.config.timeout_seconds}s)"],
+                    iterations=self._iteration_count,
+                    duration_ms=round(elapsed * 1000, 3),
+                    tool_calls=self._tool_calls_log,
+                )
+
             self._iteration_count = iteration + 1
 
             subtask = plan.next_pending()
             if subtask is None:
                 break  # All done
+
+            # Safety: check require_confirmation for destructive tools
+            if self.config.require_confirmation and subtask.tool in DESTRUCTIVE_TOOLS:
+                self.logger._log.warning(
+                    "SKIPPED (requires confirmation): %s — %s",
+                    subtask.tool, subtask.description[:60],
+                )
+                subtask.status = "skipped"
+                plan.failed += 1
+                errors.append(f"Skipped (needs confirmation): {subtask.description}")
+                continue
 
             # Execute sub-task
             self._status = AgentStatus.EXECUTING
@@ -709,6 +743,31 @@ Format your response as EXACTLY this JSON (no other text):
         }
 
     # ── output building ───────────────────────────────────────────
+
+    @staticmethod
+    def _sanitize_task_input(task: str) -> str:
+        """Sanitize task input to prevent prompt injection (issue #4).
+        
+        - Truncate to 4096 chars
+        - Remove control characters
+        - Escape obvious prompt injection patterns
+        """
+        # Truncate
+        task = task[:4096]
+        # Remove control characters (except newline/tab)
+        task = "".join(c for c in task if c.isprintable() or c in ("\n", "\t"))
+        # Strip obvious prompt injection patterns
+        injection_patterns = [
+            "ignore previous", "ignore all previous",
+            "disregard previous", "you are now", "new instructions",
+            "system:", "system prompt:",
+        ]
+        task_lower = task.lower()
+        for pattern in injection_patterns:
+            if pattern in task_lower:
+                # Replace with sanitized version
+                task = task.replace(pattern, f"[sanitized: {pattern}]")
+        return task
 
     def _detect_task_type_from_plan(self, plan: TaskPlan) -> str:
         """Detect task type from plan tools."""
