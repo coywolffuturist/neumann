@@ -24,6 +24,7 @@ from .self_improvement import (
     ExperienceEntry, Pattern, Strategy,
 )
 from .tui import NeumannTUI, run_tui
+from .scanner import ProjectScanner, FileInfo, FileAnalysis, SymbolInfo, ImportInfo
 
 __all__ = [
     "Token", "TokenType", "RenderContext", "RoutingDecision", "ValidationResult",
@@ -43,4 +44,5 @@ __all__ = [
     "ExperienceLog", "PatternExtractor", "StrategyOptimizer", "PromptAutoTuner",
     "ExperienceEntry", "Pattern", "Strategy",
     "NeumannTUI", "run_tui",
+    "ProjectScanner", "FileInfo", "FileAnalysis", "SymbolInfo", "ImportInfo",
 ]

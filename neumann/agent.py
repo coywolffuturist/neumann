@@ -44,6 +44,7 @@ from .logger import NeumannLogger
 from .self_improvement import SelfImprovementEngine
 from .llm.router import LLMRouter, LLMConfig
 from .llm import LLMMessage, LLMResponse
+from .scanner import ProjectScanner
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -264,6 +265,21 @@ class NeumannAgent:
                     self.git = GitTools(repo_path=self.config.repo_path)
             except (ValueError, FileNotFoundError, OSError):
                 pass
+
+        # Project scanner — scan codebase on init
+        self.scanner: ProjectScanner | None = None
+        if self.config.repo_path:
+            try:
+                self.scanner = ProjectScanner(self.config.repo_path)
+                self.scanner.scan(analyze=True)
+                self.logger._log.info(
+                    "Project scanned: %d files, %d symbols, %.2fs",
+                    len(self.scanner._files),
+                    sum(len(a.symbols) for a in self.scanner._analyses.values()),
+                    self.scanner._scan_time,
+                )
+            except Exception as e:
+                self.logger._log.warning("Project scan failed: %s — agent will work without project context", e)
 
         # State
         self._status = AgentStatus.WAITING
@@ -834,11 +850,15 @@ Format your response as EXACTLY this JSON (no other text):
         """Build project context for planning."""
         parts = []
 
+        # Use scanner for rich project context
+        if self.scanner:
+            context_text = self.scanner.build_llm_context(max_tokens=6000)
+            parts.append(context_text)
+
         if self.git:
             try:
                 status = self.git.status()
-                parts.append(f"Git Branch: {status.branch}")
-                parts.append(f"Git Clean: {status.clean}")
+                parts.append(f"\n## Git Status\nBranch: {status.branch}")
                 if status.modified:
                     parts.append(f"Modified: {', '.join(status.modified[:5])}")
                 if status.untracked:
@@ -846,7 +866,9 @@ Format your response as EXACTLY this JSON (no other text):
             except Exception:
                 pass
 
-        parts.append(f"Working directory: {self.config.repo_path or Path.cwd()}")
+        if not parts:
+            parts.append(f"Working directory: {self.config.repo_path or Path.cwd()}")
+
         parts.append(f"Available tools: {', '.join(self.config.allowed_tools)}")
 
         return "\n".join(parts)
