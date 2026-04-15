@@ -163,12 +163,53 @@ print(result.output)
 | `grep` | Pattern search across files | Path restriction |
 | `git` | status, diff, commit, branch, log, push, pull | Read-only by default |
 
-### 🧬 LLM Adapters (3 Providers)
+### 🧬 LLM Adapters (4 Providers)
 | Provider | Models | Cost | Setup |
 |---|---|---|---|
 | **OpenAI** | GPT-4o, GPT-4o-mini, o1, o3-mini | API key | `pip install openai` |
 | **Anthropic** | Claude Sonnet 4, Opus 4, Haiku | API key | `pip install anthropic` |
 | **Ollama** | Qwen2.5-Coder, Llama, DeepSeek | **Free, local** | `ollama pull qwen2.5-coder:32b` |
+| **MLX** *(Apple Silicon)* | Qwen3.5-122B MoE, Qwen3.5-35B MoE, Qwen3-Coder-30B | **Free, local** | `pip install mlx-lm` + model download |
+
+#### 🍎 Apple Silicon / Mac mini deployment (Qwen3.5 MLX)
+
+Neumann runs fully locally on Apple Silicon with zero API cost. Recommended for Mac mini M4 with 64GB unified memory:
+
+```python
+from neumann import NeumannAgent, AgentConfig
+from neumann.llm import LLMConfig
+
+# Qwen3.5-122B MoE — 57GB, 10B active params per token, best quality
+agent = NeumannAgent(config=AgentConfig(
+    llm_config=LLMConfig(mlx_model_path="qwen3.5-122b-60gb"),
+    model="qwen3.5-122b-60gb",
+    repo_path="/path/to/your/project",
+    sandbox_mode="docker",   # optional: Docker isolation for bash tool
+))
+result = agent.run("Add comprehensive error handling to auth.py")
+```
+
+**Model download (one-time):**
+```bash
+pip install mlx-lm huggingface-hub
+huggingface-cli download baa-ai/Qwen3.5-122B-A10B-RAM-60GB-MLX
+```
+
+**Available MLX model shorthands:**
+
+| Shorthand | HuggingFace repo | Size | RAM needed | Notes |
+|-----------|-----------------|------|-----------|-------|
+| `qwen3.5-122b-60gb` | `baa-ai/Qwen3.5-122B-A10B-RAM-60GB-MLX` | 57GB | 64GB+ | **Recommended for 64GB Mac** — MoE 122B/10B active |
+| `qwen3.5-122b-48gb` | `baa-ai/Qwen3.5-122B-A10B-RAM-48GB-MLX` | 46GB | 48GB+ | More headroom, slightly lower quality |
+| `qwen3.5-35b` | `mlx-community/Qwen3.5-35B-A3B-4bit` | ~20GB | 24GB+ | MoE 35B/3B active — fastest |
+| `qwen3-coder-30b` | `lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-MLX-4bit` | ~17GB | 24GB+ | Coding-focused MoE |
+| `qwen3.5-9b` | `mlx-community/Qwen3.5-9B-MLX-4bit` | ~5GB | 8GB+ | Lightweight option |
+
+**Why Qwen3.5 MoE on Apple Silicon:**
+- MoE architecture (Mixture of Experts): 122B total parameters, only ~10B active per token → fast inference despite large model
+- MLX Metal backend: Apple Silicon's unified memory bandwidth is ideal for MoE's sparse activation pattern
+- 64GB: enough to hold the 57GB model + OS + Neumann runtime + Docker simultaneously
+- Zero per-token cost; fully air-gapped if needed
 
 ### 📈 Recursive Self-Improvement
 ```python
@@ -337,8 +378,8 @@ result = agent.run("Add error handling to all API endpoints")
 ### Tools (7 modules)
 `bash` · `read_file` · `write_file` · `edit_file` · `grep` · `git` · `registry`
 
-### LLM (7 modules)
-`adapter.py` (base) · `openai_adapter.py` · `anthropic_adapter.py` · `gemini_adapter.py` · `ollama_adapter.py` · `router.py`
+### LLM (8 modules)
+`adapter.py` (base) · `openai_adapter.py` · `anthropic_adapter.py` · `gemini_adapter.py` · `ollama_adapter.py` · `mlx_adapter.py` (Apple Silicon native) · `router.py`
 
 ### Agent (6 modules)
 `agent.py` (NeumannAgent loop + project scanner integration) · `memory.py` (conversation history) · `advanced_prompts.py` (6-layer engine) · `self_improvement.py` (recursive learning) · `git_tools.py` (full git operations) · `scanner.py` (codebase indexer)
@@ -1181,7 +1222,7 @@ neumann/
 │   ├── core:        types, classifier, context, selector, validator
 │   ├── formatters/  8 formatters (code, diff, error, tool_call, ...)
 │   ├── tools/       6 executable tools (bash, file ops, grep, git)
-│   ├── llm/         4 LLM adapters + router (OpenAI, Anthropic, Gemini, Ollama)
+│   ├── llm/         5 LLM adapters + router (OpenAI, Anthropic, Gemini, Ollama, MLX)
 │   ├── agent:       agent loop, memory, advanced prompts, self-improvement
 │   ├── scanner.py   Project scanner — file tree, AST, dependency graph, LLM context
 │   ├── infrastructure: logger, config, templates, git_tools

@@ -24,6 +24,7 @@ from .adapter import LLMAdapter
 from .openai_adapter import OpenAIAdapter
 from .anthropic_adapter import AnthropicAdapter
 from .ollama_adapter import OllamaAdapter
+from .mlx_adapter import MLXAdapter, _MLX_RECOMMENDED
 from . import LLMMessage, LLMResponse, LLMChunk, LLMProvider
 
 
@@ -45,6 +46,12 @@ class LLMConfig:
     default_anthropic_model: str = "claude-sonnet-4-20250514"
     default_ollama_model: str = "qwen2.5-coder"
     default_gemini_model: str = "gemini-2.5-flash"
+
+    # MLX (Apple Silicon native inference)
+    # Set to a model path/shorthand to enable, e.g. "qwen3.5-122b-60gb"
+    # Shorthand aliases: see neumann/llm/mlx_adapter.py _MLX_RECOMMENDED
+    mlx_model_path: str | None = None
+    mlx_max_kv_size: int = 4096
 
     # Timeout
     timeout: int = 120
@@ -217,6 +224,16 @@ class LLMRouter:
             except ImportError:
                 pass
 
+        # MLX (Apple Silicon native) — registered if mlx_model_path is set
+        if cfg.mlx_model_path:
+            try:
+                self._adapters["mlx"] = MLXAdapter(
+                    model_path=cfg.mlx_model_path,
+                    max_kv_size=cfg.mlx_max_kv_size,
+                )
+            except Exception:
+                pass
+
     @staticmethod
     def _check_ollama(adapter: OllamaAdapter) -> None:
         """Quick check if Ollama is reachable."""
@@ -240,6 +257,13 @@ class LLMRouter:
                 return adapter, model
             return None, model
 
+        # MLX models — match shorthand aliases or "mlx" prefix
+        if model_lower in _MLX_RECOMMENDED or model_lower.startswith("mlx") or "qwen3.5" in model_lower:
+            adapter = self._adapters.get("mlx")
+            if adapter:
+                return adapter, model
+            # MLX not registered — fall through to other providers
+
         # OpenAI models
         if any(m in model_lower for m in ("gpt-", "o1", "o3")):
             adapter = self._adapters.get("openai")
@@ -253,6 +277,10 @@ class LLMRouter:
             if adapter:
                 return adapter, model
             return None, model
+
+        # MLX fallback if registered and no other match
+        if adapter := self._adapters.get("mlx"):
+            return adapter, model
 
         # Ollama models
         if adapter := self._adapters.get("ollama"):

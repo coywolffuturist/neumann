@@ -70,3 +70,7 @@ class LLMResponse:
     usage: LLMUsage = field(default_factory=LLMUsage)
     finish_reason: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+# MLX provider — available when mlx-lm is installed
+MLX = "mlx"
+
