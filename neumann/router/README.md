@@ -86,7 +86,47 @@ fnr --interview --allowed-org pakt-world mission "Build the whole signup flow wi
 # Same interview gate, then planner decomposes, then per-task routing.
 ```
 
-The default planner is the offline `MockPlanner` (no fixtures), which produces a single-task plan derived from the prompt. To plug in a real LLM-backed planner, instantiate `RouterPipeline(planner=YourPlanner())`. Same shape for the interviewer: pass `interviewer=YourSlackInterviewer()` (etc.) to drive the Q&A through Slack threads / web chat / wherever the human is.
+The default planner is the offline `MockPlanner` (no fixtures), which produces a single-task plan derived from the prompt. To plug in a real LLM-backed planner, instantiate `RouterPipeline(planner=YourPlanner())`.
+
+## Interview surfaces
+
+The router ships four concrete `Interviewer` implementations. Pick the one that matches your entry-point surface; they all produce the same `ConfirmedIntent`.
+
+| Class | Surface | Approver id default | Approval lexicon | Header |
+|---|---|---|---|---|
+| `CLIInterviewer` | terminal stdin/stdout | `""` | `y/yes/approve/ship` | `[router-interview]` |
+| `SlackInterviewer` | Slack thread | caller-supplied (Slack U-id) | `+ "ship it" / "shipit"` | `🐺 *Coywolf interview*` |
+| `LucidInterviewer` | Lucid dashboard chat | `"brendan"` | base lexicon | `**🐺 Coywolf — clarifying intent**` |
+| `WebInterviewer` | 2touch team-facing chat | caller-supplied (Lucid user id) | `+ "APPROVE"` (button) | `**Coywolf — confirming what you'd like to ship**` |
+
+Each chat-based interviewer takes two callables — `send_message(text) -> None` and `wait_for_response(timeout) -> str` — that the caller wires to the actual transport (Slack Bolt, SSE, WebSocket, queue). The class only handles the loop + validation gate.
+
+Example wiring for Slack (sketch — wire to your Bolt app + a thread-message queue):
+
+```python
+from queue import Queue
+from neumann.router import SlackInterviewer
+
+response_queue: Queue[str] = Queue()
+
+def send(text: str) -> None:
+    slack_app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+
+def wait(timeout: float | None) -> str:
+    return response_queue.get(timeout=timeout)  # raises queue.Empty → caller maps to TimeoutError
+
+# Your Slack message listener filters in-thread messages from this user
+# and pushes their .text into response_queue. The interviewer doesn't know
+# anything about Slack; it just sees a queue.
+
+interviewer = SlackInterviewer(
+    send_message=send,
+    wait_for_response=wait,
+    allowed_orgs=("pakt-world",),
+    approver_id=user_slack_id,
+)
+intent = interviewer.interview(raw_prompt)
+```
 
 ## Adding a new task type
 
@@ -151,3 +191,4 @@ Test layers:
 - `test_pipeline.py` — full end-to-end including MockPlanner fixtures
 - `test_interviewer.py` — `validate_intent` schema gate, MockInterviewer fixtures, CLIInterviewer with stubbed I/O including refine path and max-rounds exhaustion
 - `test_pipeline_with_interview.py` — pipeline end-to-end with the Interviewer wired in
+- `test_chat_interviewers.py` — ChatInterviewer base behavior + per-surface tests (Slack header + ship-it lexicon, Lucid default brendan approver + Markdown header, Web button-click APPROVE marker + team-voice header)

@@ -320,3 +320,275 @@ class InterviewIncomplete(RuntimeError):
     def __init__(self, reason: str, *, partial: ConfirmedIntent | None = None) -> None:
         super().__init__(reason)
         self.partial = partial
+
+
+# ── ChatInterviewer (surface-agnostic chat loop) ─────────────────
+
+
+class ChatInterviewer:
+    """Surface-agnostic chat-based interview.
+
+    Concrete subclasses (``SlackInterviewer``, ``LucidInterviewer``,
+    ``WebInterviewer``) supply transport via two callables and override
+    surface-specific formatting + approval-pattern recognition.
+
+    The transport contract:
+    - ``send_message(text) -> None``: post a question to the chat surface.
+    - ``wait_for_response(timeout) -> str``: block until the human replies,
+      raise ``TimeoutError`` if no response within ``timeout`` seconds.
+
+    The caller wires those to Slack Bolt / Lucid SSE / 2touch WebSocket /
+    whatever. This class only handles the loop + validation gate.
+    """
+
+    # Default approval lexicon. Subclasses can extend or replace.
+    APPROVAL_PATTERNS: tuple[str, ...] = (
+        "yes", "y", "yep", "yeah", "yup",
+        "approve", "approved", "approval",
+        "ship", "ship it", "ship-it", "shipit",
+        "lgtm", "looks good", "looks-good",
+        "go", "go ahead", "proceed",
+        "🐺", "👍", "✅", "🚀",
+    )
+
+    DENIAL_PATTERNS: tuple[str, ...] = (
+        "no", "n", "nope", "nah",
+        "reject", "rejected", "deny", "denied",
+        "stop", "halt", "cancel",
+        "👎", "❌",
+    )
+
+    def __init__(
+        self,
+        send_message: Callable[[str], None],
+        wait_for_response: Callable[[float | None], str],
+        *,
+        allowed_orgs: tuple[str, ...] = (),
+        questions_path: Path | str | None = None,
+        approver_id: str = "",
+        timeout_per_question_seconds: float | None = 600.0,
+    ) -> None:
+        self._send = send_message
+        self._wait = wait_for_response
+        self._allowed_orgs = allowed_orgs
+        self._questions = load_questions(questions_path)
+        self._approver_id = approver_id
+        self._timeout = timeout_per_question_seconds
+
+    # ── public ────────────────────────────────────────────────
+
+    def interview(
+        self,
+        raw_prompt: str,
+        *,
+        seed: ConfirmedIntent | None = None,
+        env: dict[str, Any] | None = None,
+    ) -> ConfirmedIntent:
+        env = env or {}
+        intent = seed or ConfirmedIntent(
+            raw_prompt=raw_prompt,
+            confirmed_intent=raw_prompt,
+            target_repo="",
+            human_approver_id=self._approver_id,
+        )
+        transcript: list[InterviewExchange] = list(intent.transcript)
+
+        max_rounds = 8
+        for _ in range(max_rounds):
+            result = validate_intent(intent, allowed_orgs=self._allowed_orgs)
+            if result.valid:
+                break
+
+            field = self._failure_to_field(result.reason)
+            q = self._question_for_field(field) if field else None
+            if q is None:
+                break
+
+            formatted = self._format_question(q, intent, env)
+            self._send(self._format_message(formatted))
+            try:
+                response = self._wait(self._timeout)
+            except TimeoutError as e:
+                raise InterviewIncomplete(
+                    f"timed out waiting for response to: {formatted!r}",
+                    partial=replace(intent, transcript=tuple(transcript)),
+                ) from e
+            response = response.strip()
+
+            transcript.append(
+                InterviewExchange(
+                    question=formatted,
+                    response=response,
+                    asked_at=datetime.now(timezone.utc).isoformat(),
+                )
+            )
+            intent = self._apply_response(intent, q, response, env)
+
+        intent = replace(intent, transcript=tuple(transcript), human_approver_id=self._approver_id or intent.human_approver_id)
+        final = validate_intent(intent, allowed_orgs=self._allowed_orgs)
+        if not final.valid:
+            raise InterviewIncomplete(final.reason, partial=intent)
+        return intent
+
+    # ── surface hooks (override in subclasses) ────────────────
+
+    HEADER: str = "[router-interview]"  # subclasses override per surface
+
+    def _format_message(self, text: str) -> str:
+        """Wrap the question text with the surface header.
+
+        Default: prepend ``[router-interview]``. Subclasses override
+        ``HEADER`` to apply Slack markdown / Lucid Markdown / 2touch voice.
+        """
+        return f"{self.HEADER} {text}"
+
+    def _parse_approval(self, response: str) -> bool:
+        """Return True if response indicates approval. Subclasses extend."""
+        lowered = response.strip().lower()
+        if not lowered:
+            return False
+        # Exact-match approval emojis
+        if lowered in self.APPROVAL_PATTERNS:
+            return True
+        # Word-boundary approval phrases at start
+        for pat in self.APPROVAL_PATTERNS:
+            if lowered.startswith(pat):
+                return True
+        return False
+
+    def _parse_denial(self, response: str) -> bool:
+        lowered = response.strip().lower()
+        if not lowered:
+            return False
+        if lowered in self.DENIAL_PATTERNS:
+            return True
+        for pat in self.DENIAL_PATTERNS:
+            if lowered.startswith(pat):
+                return True
+        return False
+
+    # ── internals shared with CLIInterviewer ─────────────────
+
+    @staticmethod
+    def _failure_to_field(reason: str) -> str | None:
+        return CLIInterviewer._failure_to_field(reason)
+
+    def _question_for_field(self, field_name: str) -> InterviewQuestion | None:
+        for q in self._questions:
+            if q.required_field == field_name:
+                return q
+        return None
+
+    @staticmethod
+    def _format_question(q: InterviewQuestion, intent: ConfirmedIntent, env: dict[str, Any]) -> str:
+        return CLIInterviewer._format_question(q, intent, env)
+
+    def _apply_response(
+        self,
+        intent: ConfirmedIntent,
+        q: InterviewQuestion,
+        response: str,
+        env: dict[str, Any],
+    ) -> ConfirmedIntent:
+        # Approval handling — uses surface-specific parser to recognize chat
+        # idioms like 'ship it' or 🐺. CLI's simpler 'y/yes/approve' check is
+        # subsumed by these patterns.
+        if q.required_field == "human_approved":
+            if self._parse_approval(response):
+                return replace(intent, human_approved=True)
+            if response.lower().startswith("refine"):
+                refinement = response.split(":", 1)[1].strip() if ":" in response else ""
+                if refinement:
+                    return replace(intent, confirmed_intent=refinement, human_approved=False)
+                return replace(intent, human_approved=False)
+            return replace(intent, human_approved=False)
+
+        if q.required_field == "target_repo":
+            return replace(intent, target_repo=response.strip())
+        if q.required_field == "success_criteria":
+            criteria = tuple(s.strip() for s in re.split(r"[;\n]+", response) if s.strip())
+            return replace(intent, success_criteria=criteria or intent.success_criteria)
+        if q.required_field == "out_of_scope":
+            items = tuple(s.strip() for s in re.split(r"[;\n]+", response) if s.strip())
+            return replace(intent, out_of_scope=items)
+        if q.required_field == "constraints":
+            items = tuple(s.strip() for s in re.split(r"[;\n]+", response) if s.strip())
+            return replace(intent, constraints=items)
+        return intent
+
+
+# ── Concrete chat surfaces ───────────────────────────────────────
+
+
+class SlackInterviewer(ChatInterviewer):
+    """Interviewer that runs in a Slack thread.
+
+    The caller wires ``send_message`` to ``slack_app.client.chat_postMessage``
+    (with channel + thread_ts pre-bound) and wires ``wait_for_response`` to
+    a queue/future populated by the Slack Socket Mode message listener
+    filtered for this thread + this user.
+
+    Approval lexicon includes the Coywolf-pack idioms (🐺, "ship it") that
+    Brendan's Slack flow already uses for plan approvals.
+    """
+
+    APPROVAL_PATTERNS = ChatInterviewer.APPROVAL_PATTERNS + (
+        "ship it", "shipit", "ship-it",
+    )
+
+    HEADER = "🐺 *Coywolf interview*"
+
+
+class LucidInterviewer(ChatInterviewer):
+    """Interviewer for Brendan's personal Lucid dashboard chat panel.
+
+    Lucid renders standard Markdown. The caller wires send_message to the
+    SSE/WebSocket channel that pushes to the chat panel, and wait_for_response
+    to a queue fed by inbound chat messages from Brendan.
+
+    The approver is always Brendan in this surface — the interviewer
+    stamps human_approver_id='brendan' by default unless overridden.
+    """
+
+    HEADER = "**🐺 Coywolf — clarifying intent**"
+
+    def __init__(
+        self,
+        send_message: Callable[[str], None],
+        wait_for_response: Callable[[float | None], str],
+        *,
+        allowed_orgs: tuple[str, ...] = (),
+        questions_path: Path | str | None = None,
+        approver_id: str = "brendan",
+        timeout_per_question_seconds: float | None = 600.0,
+    ) -> None:
+        super().__init__(
+            send_message,
+            wait_for_response,
+            allowed_orgs=allowed_orgs,
+            questions_path=questions_path,
+            approver_id=approver_id,
+            timeout_per_question_seconds=timeout_per_question_seconds,
+        )
+
+
+class WebInterviewer(ChatInterviewer):
+    """Interviewer for 2touch's team-facing web chat surface.
+
+    2touch is the Pakt-team approval portal. The caller wires send_message
+    to the web chat's outbound channel (typically an SSE push to the chat
+    component) and wait_for_response to a queue fed by inbound chat
+    messages from the requester. approver_id should be the requester's
+    Lucid user-id so the ConfirmedIntent's human_approver_id is mapped
+    back to the right team member.
+
+    Recognized "approve via button" patterns: a frontend can post the
+    literal string 'APPROVE' (uppercase) when the user clicks the
+    Approve button, which the parser treats as an explicit approval.
+    """
+
+    APPROVAL_PATTERNS = ChatInterviewer.APPROVAL_PATTERNS + (
+        "APPROVE", "approve",  # button-click marker
+    )
+
+    HEADER = "**Coywolf — confirming what you'd like to ship**"
