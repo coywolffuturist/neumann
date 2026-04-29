@@ -1,0 +1,114 @@
+[
+  {
+    "priority": 1,
+    "pattern": "\\b(verify|verification|browser[- ]check|browser[- ]test|smoke[- ]test|regression|visual[- ]check|screenshot[- ]compare|e2e|end[- ]to[- ]end[- ]test|acceptance[- ]test|qa|quality[- ]assurance|audit\\s+the|sanity[- ]check)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "verification",
+    "note": "Wins over generic test/fix because verification = don't assume, prove."
+  },
+  {
+    "priority": 2,
+    "pattern": "\\b(security|vuln(erability)?|cve|injection|xss|csrf|auth(entication|orization)?|rbac|secret|credential|leaked?\\s+key|sanitize|hash(ing)?|encrypt(ion)?|signed?\\s+commit)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "security",
+    "note": "Security-flavored work."
+  },
+  {
+    "priority": 3,
+    "pattern": "\\b(architect(ure)?|design[- ]doc|technical[- ]decision|adr|trade[- ]off\\s+analys[ie]s|tech[- ]choice|pick\\s+between)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "tech-architecture",
+    "note": "Architectural decisions, system design, technology evaluation."
+  },
+  {
+    "priority": 4,
+    "pattern": "\\b(prioriti[sz]e|roadmap|strateg(y|ic)|business[- ](goal|case|model)|vision|escalate(?!\\s+to)|decide\\s+between|north[- ]star|okrs?|kpis?)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "strategy",
+    "note": "Business-strategic decisions."
+  },
+  {
+    "priority": 5,
+    "pattern": "\\b(cost|budget|spend|pricing|infra(structure)?[- ]cost|operational[- ]cost|opex|capex|burn[- ]rate|resource[- ]allocation|roi|cost[- ]benefit)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "finance",
+    "note": "Financial / cost analysis."
+  },
+  {
+    "priority": 6,
+    "pattern": "\\b(copy|messaging|positioning|landing[- ]page|marketing|growth|audience|funnel|seo|email[- ](campaign|copy)|launch[- ]announce|press[- ]release|social[- ]post|brand[- ]voice)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "marketing",
+    "note": "User-facing language, brand voice, growth motions."
+  },
+  {
+    "priority": 10,
+    "pattern": "\\.(?:tsx|jsx|css|scss|sass|html|vue|svelte)$",
+    "match_fields": ["target_files"],
+    "type": "frontend",
+    "note": "File-extension signal — far stronger than prose pattern matching."
+  },
+  {
+    "priority": 11,
+    "pattern": "\\b(component|ui|ux|css|tailwind|responsive|breakpoint|accessibility|a11y|aria|keyboard[- ]nav|button|form|modal|toast|spinner|layout|stylesheet|dark[- ]mode|theme)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "frontend",
+    "note": "Interface concerns by prose."
+  },
+  {
+    "priority": 12,
+    "pattern": "(?:server\\.[jt]s|/api/|/routes/|/migrations?/|\\.sql$|/schema|/services/|/controllers?/|/models?/|/middleware/|/queues?/|/workers?/)",
+    "match_fields": ["target_files"],
+    "type": "backend",
+    "note": "Backend file path signals."
+  },
+  {
+    "priority": 13,
+    "pattern": "\\b(api|endpoint|route|schema|migration|database|sql|query|index|rate[- ]limit|webhook|background[- ](job|worker)|queue|cron|crontab|grpc|graphql\\s+resolver|orm)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "backend",
+    "note": "Server-side concerns by prose."
+  },
+  {
+    "priority": 15,
+    "pattern": "\\b(end[- ]to[- ]end|full[- ]?stack|cross[- ]?layer|backend\\s+and\\s+frontend|both\\s+(server|client)\\s+and|integration\\s+between)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "fullstack",
+    "note": "Explicitly spans frontend + backend."
+  },
+  {
+    "priority": 20,
+    "pattern": "\\b(perf(ormance)?|optimi[sz]e|slow|latency|throughput|memory[- ](leak|usage)|profile|hot[- ]path|n\\+1|caching\\s+strategy)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "performance",
+    "note": "Performance work — dispatch resolves frontend vs backend by context."
+  },
+  {
+    "priority": 7,
+    "pattern": "\\b(docs?|documentation|readme|agents\\.md|claude\\.md|spec|openapi|docstring|annotate|api[- ]docs|guide|document\\s+(the|project|how|a))\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "documentation",
+    "note": "Docs work — promoted above engineering prose so 'Document the layout' wins as docs not frontend."
+  },
+  {
+    "priority": 30,
+    "pattern": "\\b(fix|bug|broken|crash|error|regression|hotfix|patch|debug|stack[- ]trace)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "bugfix",
+    "note": "Bug-flavored work — Engineer (general) by default, specialized by file-extension via dispatch context."
+  },
+  {
+    "priority": 31,
+    "pattern": "\\b(add|implement|build|create|introduce|wire|hook[- ]up|integrate|set[- ]up|scaffold)\\b",
+    "match_fields": ["title", "description", "type_hints"],
+    "type": "implementation",
+    "note": "Generic feature work."
+  },
+  {
+    "priority": 99,
+    "pattern": ".*",
+    "match_fields": ["title"],
+    "type": "unknown",
+    "note": "Catch-all. Triggers FallbackHandler — generic engineer or LLM tie-break."
+  }
+]

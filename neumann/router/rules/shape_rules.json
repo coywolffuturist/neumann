@@ -1,0 +1,45 @@
+[
+  {
+    "priority": 1,
+    "pattern": "\\b(build|implement|create|design|deliver|develop|launch|ship)\\s+(the\\s+)?(whole|entire|full|complete)\\b",
+    "shape": "mission",
+    "note": "Explicit multi-piece intent — 'build the whole signup flow', 'implement the full pipeline'."
+  },
+  {
+    "priority": 2,
+    "pattern": "\\b(redesign|re-architect|overhaul|migrate|refactor)\\s+(the\\s+)?(architecture|system|module structure|data\\s*model|service\\s*layer)\\b",
+    "shape": "mission",
+    "note": "Architectural-scale work — always multi-task."
+  },
+  {
+    "priority": 3,
+    "pattern": "\\b(set\\s*up|stand\\s*up|bootstrap|scaffold)\\s+(a\\s+)?(new\\s+)?(project|service|application|app|repo|repository|microservice|api)\\b",
+    "shape": "mission",
+    "note": "New-project/new-service work spans many tasks (schema, routes, tests, deploy)."
+  },
+  {
+    "priority": 4,
+    "pattern": "\\b(roadmap|plan|outline)\\s+(the\\s+|a\\s+)?(quarter|sprint|launch|rollout|release|migration|integration|onboarding)\\b",
+    "shape": "mission",
+    "note": "Planning prompts that produce multi-task output."
+  },
+  {
+    "priority": 5,
+    "pattern": "\\b(integrate|connect|wire\\s*up)\\s+\\S+\\s+(with|to|into)\\s+\\S+\\s+(and|plus|while|including)\\b",
+    "shape": "mission",
+    "note": "Multi-system integration — 'integrate Stripe with the user model AND update the pricing page'."
+  },
+  {
+    "priority": 10,
+    "pattern": "(?:[.!?]\\s+)(?=[A-Z])",
+    "shape": "mission",
+    "note": "3+ sentences signal multi-step work. Match ANY .!? followed by capital — pipeline counts hits separately and routes to mission iff hits >= 2 (i.e. >=3 sentences). See ShapeClassifier.classify().",
+    "match_via": "sentence_count_threshold"
+  },
+  {
+    "priority": 99,
+    "pattern": ".*",
+    "shape": "single-task",
+    "note": "Default. Single task — skip the planner."
+  }
+]

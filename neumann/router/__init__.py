@@ -1,0 +1,88 @@
+"""neumann.router — Deterministic persona-routing kernel for AI agent systems.
+
+Sits between an LLM planner and downstream agent specialists. The LLM produces
+structured plans; the router classifies each planned task and dispatches it to
+the right persona.
+
+LLM generates. Neumann routes.
+
+Public API:
+
+    from neumann.router import (
+        ShapeClassifier,
+        TaskTypeClassifier,
+        ContextResolver,
+        PersonaSelector,
+        RoutingValidator,
+        RoutingFallback,
+        RouterPipeline,
+        PlannedTask,
+        Shape,
+        TaskType,
+        RoutingContext,
+        PersonaDecision,
+    )
+
+Typical usage::
+
+    pipeline = RouterPipeline()
+    shape = pipeline.classify_shape(prompt="Fix the typo in README")
+    if shape.shape == Shape.SINGLE_TASK:
+        decision = pipeline.route(PlannedTask.from_prompt(prompt))
+    else:
+        plan = pipeline.plan(prompt)              # delegates to LLM planner
+        decisions = [pipeline.route(t) for t in plan.tasks]
+"""
+from __future__ import annotations
+
+from .types import (
+    Shape,
+    TaskType,
+    PersonaId,
+    RoutingContext,
+    PlannedTask,
+    Plan,
+    ShapeDecision,
+    PersonaDecision,
+    RoutingTrace,
+    ValidationResult,
+    FALLBACK_SENTINEL,
+)
+from .shape_classifier import ShapeClassifier
+from .task_classifier import TaskTypeClassifier
+from .context_resolver import ContextResolver
+from .persona_selector import PersonaSelector
+from .validator import RoutingValidator
+from .fallback import RoutingFallback
+from .registry import PersonaRegistry, get_persona
+from .planner_protocol import Planner, MockPlanner
+from .pipeline import RouterPipeline, PipelineResult
+
+__all__ = [
+    # types
+    "Shape",
+    "TaskType",
+    "PersonaId",
+    "RoutingContext",
+    "PlannedTask",
+    "Plan",
+    "ShapeDecision",
+    "PersonaDecision",
+    "RoutingTrace",
+    "ValidationResult",
+    "FALLBACK_SENTINEL",
+    # components
+    "ShapeClassifier",
+    "TaskTypeClassifier",
+    "ContextResolver",
+    "PersonaSelector",
+    "RoutingValidator",
+    "RoutingFallback",
+    "PersonaRegistry",
+    "get_persona",
+    # pipeline
+    "Planner",
+    "MockPlanner",
+    "RouterPipeline",
+    "PipelineResult",
+]
