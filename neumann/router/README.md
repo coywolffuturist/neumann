@@ -1,36 +1,41 @@
 # neumann.router
 
-> Deterministic persona routing for AI agent systems. Plug Neumann's symbolic kernel between an LLM planner and downstream specialists.
+> Deterministic persona routing for AI agent systems. Three generative phases (interview → plan → route) with a deterministic schema gate at each handoff.
 
 ## What it is
 
-A subpackage of [Neumann](../../README.md) that routes planned tasks to the right specialist persona via dispatch tables — no LLM call required for routing itself.
+A subpackage of [Neumann](../../README.md) that takes a raw user prompt, makes sure the agent *understands* the human's intent, decomposes the work into specialist tasks, and routes each task to the right persona via dispatch tables.
 
-The split:
-- **LLM generates.** A planner (Claude / Sonnet / etc.) takes a user prompt and produces a structured `Plan` with one or more `PlannedTask`s.
-- **Neumann routes.** Each `PlannedTask` flows through a deterministic pipeline: classify → resolve context → select persona → validate → fallback if needed.
+The three phases:
+- **Interview (LLM, optional).** A clarifying Q&A loop that produces a structured `ConfirmedIntent` — the human-approved restatement of intent + target repo + success criteria. The deterministic gate here is `validate_intent`: the loop terminates only when required fields are populated and the human has explicitly approved.
+- **Plan (LLM).** A planner takes the confirmed intent and produces a structured `Plan` with one or more `PlannedTask`s. The Planner persona's soul + instructions live in `personas/planner.json`.
+- **Route (deterministic).** Each `PlannedTask` flows through classify → resolve context → select persona → validate → fallback. No LLM call required.
 
 ## Why this shape
 
-Routing on raw prompts forces routing decisions on under-specified prose — the same problem Neumann was built to solve. Routing on **structured planned tasks** lets the dispatch rules lean on `target_files`, `type_hints`, and `acceptance_criteria` — far stronger signals than NL keyword matches.
+Routing on raw prompts forces routing decisions on under-specified prose — the same problem Neumann was built to solve. The Interview stage stops the agent from speculating; the human explicitly blesses the agent's interpretation before any plan is written. Then routing on **structured planned tasks** lets the dispatch rules lean on `target_files`, `type_hints`, and `acceptance_criteria` — far stronger signals than NL keyword matches.
+
+The pattern: **three generative phases, three structured artifacts, deterministic gates between each.**
 
 ## Pipeline
 
 ```
 User prompt
     ↓
-ShapeClassifier         single-task | mission
+ShapeClassifier            single-task | mission
     ↓
-[mission] → Planner → Plan{tasks: [PlannedTask, …]}
+Interviewer (optional)     LLM Q&A loop → ConfirmedIntent (gate: validate_intent)
+    ↓
+[mission] → Planner → Plan{tasks: [PlannedTask, …], confirmed_intent: …}
     ↓
 For each PlannedTask:
-    TaskTypeClassifier  rules-as-data; first match wins
-    ContextResolver     project_type, available_personas, persona_load
-    PersonaSelector     dispatch table: (task_type, context) → persona
-    RoutingFallback     generic engineer OR LLM tie-break
-    RoutingValidator    persona registered, enabled, has bandwidth
+    TaskTypeClassifier     rules-as-data; first match wins
+    ContextResolver        project_type, available_personas, persona_load
+    PersonaSelector        dispatch table: (task_type, context) → persona
+    RoutingFallback        generic engineer OR LLM tie-break
+    RoutingValidator       persona registered, enabled, has bandwidth
     ↓
-RoutingTrace            input_hash, decision, trace[], duration_ms
+RoutingTrace               input_hash, decision, trace[], duration_ms
 ```
 
 ## Layout
@@ -38,8 +43,9 @@ RoutingTrace            input_hash, decision, trace[], duration_ms
 ```
 neumann/router/
 ├── __init__.py             # public API
-├── types.py                # Shape, TaskType, PlannedTask, Plan, RoutingContext, …
+├── types.py                # Shape, TaskType, PlannedTask, Plan, ConfirmedIntent, RoutingContext, …
 ├── shape_classifier.py     # mission vs single-task
+├── interviewer.py          # Interviewer protocol + MockInterviewer + CLIInterviewer + validate_intent
 ├── task_classifier.py      # PlannedTask → TaskType
 ├── context_resolver.py     # default RoutingContext from target_files heuristics
 ├── persona_selector.py     # dispatch table lookup
@@ -48,9 +54,10 @@ neumann/router/
 ├── registry.py             # persona id → metadata (Fusion presets + custom)
 ├── planner_protocol.py     # Planner protocol + MockPlanner for tests
 ├── pipeline.py             # RouterPipeline orchestrator
-├── cli.py                  # `fnr` CLI
+├── cli.py                  # `fnr` CLI (--interview flag)
 ├── rules/
 │   ├── shape_rules.json
+│   ├── interview_questions.json
 │   ├── task_type_rules.json
 │   └── persona_dispatch.json
 └── personas/
@@ -64,17 +71,22 @@ neumann/router/
 fnr classify-shape "Fix the typo in the README"
 # → shape: single-task  (priority 99, sentences=1)
 
-# Route a single-task prompt
+# Route a single-task prompt (no interview)
 fnr task "Add /api/healthz endpoint returning {ok:true}"
 # → persona: backend-engineer
 # → trace: task_type=backend, dispatch priority=1, validation: ok
 
-# Plan + route a mission prompt
-fnr mission "Build the whole signup flow with email verification and onboarding"
-# → invokes planner, dispatches each planned task
+# Run the interview before routing — recommended for any human-driven entry point
+fnr --interview --allowed-org pakt-world task "Add /healthz endpoint"
+# Asks: which repo? what's "done"? approve to write the plan?
+# Then routes the confirmed intent.
+
+# Plan + route a mission prompt (with interview)
+fnr --interview --allowed-org pakt-world mission "Build the whole signup flow with email verification and onboarding"
+# Same interview gate, then planner decomposes, then per-task routing.
 ```
 
-The default planner is the offline `MockPlanner` (no fixtures), which produces a single-task plan derived from the prompt. To plug in a real LLM-backed planner, instantiate `RouterPipeline(planner=YourPlanner())`.
+The default planner is the offline `MockPlanner` (no fixtures), which produces a single-task plan derived from the prompt. To plug in a real LLM-backed planner, instantiate `RouterPipeline(planner=YourPlanner())`. Same shape for the interviewer: pass `interviewer=YourSlackInterviewer()` (etc.) to drive the Q&A through Slack threads / web chat / wherever the human is.
 
 ## Adding a new task type
 
@@ -129,7 +141,7 @@ Future: each `RoutingTrace` gets logged to `~/.coywolf/router/log/decisions.json
 
 ```sh
 python3 -m pytest tests/router/ -v
-# 49 passed in 0.06s
+# 66 passed in 0.07s
 ```
 
 Test layers:
@@ -137,3 +149,5 @@ Test layers:
 - `test_task_classifier.py` — PlannedTask → TaskType
 - `test_persona_selector.py` — dispatch table behavior including unavailable-persona fallback
 - `test_pipeline.py` — full end-to-end including MockPlanner fixtures
+- `test_interviewer.py` — `validate_intent` schema gate, MockInterviewer fixtures, CLIInterviewer with stubbed I/O including refine path and max-rounds exhaustion
+- `test_pipeline_with_interview.py` — pipeline end-to-end with the Interviewer wired in

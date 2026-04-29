@@ -47,6 +47,8 @@ from .types import (
     RoutingTrace,
     ValidationResult,
     FALLBACK_SENTINEL,
+    InterviewExchange,
+    ConfirmedIntent,
 )
 from .shape_classifier import ShapeClassifier
 from .task_classifier import TaskTypeClassifier
@@ -56,6 +58,13 @@ from .validator import RoutingValidator
 from .fallback import RoutingFallback
 from .registry import PersonaRegistry, get_persona
 from .planner_protocol import Planner, MockPlanner
+from .interviewer import (
+    Interviewer,
+    MockInterviewer,
+    CLIInterviewer,
+    InterviewIncomplete,
+    validate_intent,
+)
 from .pipeline import RouterPipeline, PipelineResult
 
 __all__ = [
@@ -71,6 +80,8 @@ __all__ = [
     "RoutingTrace",
     "ValidationResult",
     "FALLBACK_SENTINEL",
+    "InterviewExchange",
+    "ConfirmedIntent",
     # components
     "ShapeClassifier",
     "TaskTypeClassifier",
@@ -83,6 +94,11 @@ __all__ = [
     # pipeline
     "Planner",
     "MockPlanner",
+    "Interviewer",
+    "MockInterviewer",
+    "CLIInterviewer",
+    "InterviewIncomplete",
+    "validate_intent",
     "RouterPipeline",
     "PipelineResult",
 ]

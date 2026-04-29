@@ -87,6 +87,38 @@ class PlannedTask:
 
 
 @dataclass(frozen=True)
+class InterviewExchange:
+    """One round-trip in the interview loop."""
+
+    question: str
+    response: str
+    asked_at: str = ""  # ISO timestamp; empty for tests
+
+
+@dataclass(frozen=True)
+class ConfirmedIntent:
+    """The deterministic gate between user prompt and Plan.
+
+    The Interviewer must populate at least the *required* fields and obtain
+    explicit ``human_approved=True`` before the Planner is allowed to run.
+    Validation lives in ``Interviewer.validate_intent`` — pure function,
+    no LLM involved. This is the schema-validator pattern from upstream
+    Neumann applied to intent capture.
+    """
+
+    raw_prompt: str
+    confirmed_intent: str            # human-approved restatement of what we're building
+    target_repo: str                  # owner/name — must satisfy the project's allowlist
+    success_criteria: tuple[str, ...] = ()
+    constraints: tuple[str, ...] = ()
+    out_of_scope: tuple[str, ...] = ()
+    human_approver_id: str = ""       # Slack U-id, Lucid user id, or empty for CLI
+    human_approved: bool = False
+    transcript: tuple[InterviewExchange, ...] = ()
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Plan:
     """Output of the LLM Planner for a mission-shape prompt."""
 
@@ -94,6 +126,7 @@ class Plan:
     summary: str = ""
     assumptions: tuple[str, ...] = ()
     tasks: tuple[PlannedTask, ...] = ()
+    confirmed_intent: ConfirmedIntent | None = None  # link back to the interview that authorized this plan
 
 
 @dataclass(frozen=True)

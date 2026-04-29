@@ -22,6 +22,7 @@ import sys
 from dataclasses import asdict
 from typing import Any
 
+from .interviewer import CLIInterviewer
 from .pipeline import PipelineResult, RouterPipeline
 from .types import PlannedTask, Shape
 
@@ -51,6 +52,18 @@ def _print_result(result: PipelineResult, *, json_out: bool) -> None:
         payload = {
             "shape": result.shape_decision.shape.value,
             "shape_priority": result.shape_decision.matched_rule_priority,
+            "confirmed_intent": (
+                {
+                    "confirmed_intent": result.confirmed_intent.confirmed_intent,
+                    "target_repo": result.confirmed_intent.target_repo,
+                    "success_criteria": list(result.confirmed_intent.success_criteria),
+                    "constraints": list(result.confirmed_intent.constraints),
+                    "out_of_scope": list(result.confirmed_intent.out_of_scope),
+                    "human_approved": result.confirmed_intent.human_approved,
+                }
+                if result.confirmed_intent
+                else None
+            ),
             "plan": (
                 {
                     "mission_title": result.plan.mission_title,
@@ -67,7 +80,18 @@ def _print_result(result: PipelineResult, *, json_out: bool) -> None:
         return
 
     sd = result.shape_decision
-    print(f"shape: {sd.shape.value}  (rule priority {sd.matched_rule_priority})")
+    print(f"\nshape: {sd.shape.value}  (rule priority {sd.matched_rule_priority})")
+    if result.confirmed_intent is not None:
+        ci = result.confirmed_intent
+        print(f"\nconfirmed intent: {ci.confirmed_intent}")
+        print(f"  target repo:     {ci.target_repo}")
+        print(f"  success:         {'; '.join(ci.success_criteria) or '(none)'}")
+        if ci.constraints:
+            print(f"  constraints:     {'; '.join(ci.constraints)}")
+        if ci.out_of_scope:
+            print(f"  out of scope:    {'; '.join(ci.out_of_scope)}")
+        print(f"  approved:        {ci.human_approved}")
+
     if sd.shape == Shape.MISSION and result.plan:
         print(f"\nplan: {result.plan.mission_title}")
         if result.plan.summary:
@@ -94,6 +118,18 @@ def _print_result(result: PipelineResult, *, json_out: bool) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fnr", description="Neumann router — deterministic persona routing.")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of human-readable output.")
+    parser.add_argument(
+        "--interview",
+        action="store_true",
+        help="Run the interactive interview before planning/routing. Recommended for any human-driven entry point.",
+    )
+    parser.add_argument(
+        "--allowed-org",
+        action="append",
+        dest="allowed_orgs",
+        default=[],
+        help="Org allowlist for repo-spec validation (e.g. --allowed-org pakt-world). Repeatable.",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_task = sub.add_parser("task", help="Route a single-task prompt.")
@@ -107,7 +143,14 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    pipeline = RouterPipeline()
+    interviewer = None
+    if args.interview:
+        interviewer = CLIInterviewer(allowed_orgs=tuple(args.allowed_orgs))
+
+    pipeline = RouterPipeline(
+        interviewer=interviewer,
+        allowed_orgs=tuple(args.allowed_orgs),
+    )
 
     if args.cmd == "classify-shape":
         sd = pipeline.classify_shape(args.prompt)
@@ -124,13 +167,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "task":
-        # Force single-task path even if shape classifier disagrees.
-        trace = pipeline.route(PlannedTask.from_prompt(args.prompt))
-        result = PipelineResult(
-            shape_decision=pipeline.classify_shape(args.prompt),
-            plan=None,
-            routes=(trace,),
-        )
+        if args.interview:
+            # Full pipeline (interview → maybe plan → route).
+            result = pipeline.process(args.prompt)
+        else:
+            # Force single-task path even if shape classifier disagrees.
+            trace = pipeline.route(PlannedTask.from_prompt(args.prompt))
+            result = PipelineResult(
+                shape_decision=pipeline.classify_shape(args.prompt),
+                confirmed_intent=None,
+                plan=None,
+                routes=(trace,),
+            )
         _print_result(result, json_out=args.json)
         return 0
 

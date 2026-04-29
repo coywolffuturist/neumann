@@ -1,6 +1,46 @@
 # Morning review — `feature/router` branch
 
-**Built overnight, 2026-04-29.** Everything below is on the local branch `feature/router`. Nothing has been pushed. Test it, then tell me whether to push or revise.
+**Built overnight, 2026-04-29. Updated morning of 2026-04-29 with Interviewer module per Brendan's spec.** Everything below is on the local branch `feature/router`. Nothing has been pushed. Test it, then tell me whether to push or revise.
+
+## Update — Interviewer added (interview → plan → route)
+
+Per Brendan's morning addition: a clarifying interview must happen between the user's prompt and the LLM Planner. The agent doesn't speculate; the human explicitly confirms the agent's understanding before any plan is written. Repo targeting is one of the mandatory fields.
+
+New components:
+- `neumann/router/interviewer.py` — `Interviewer` Protocol + `MockInterviewer` (tests) + `CLIInterviewer` (interactive terminal) + `validate_intent` (deterministic schema gate)
+- `neumann/router/rules/interview_questions.json` — required-field gates: target_repo, success_criteria, human_approved (mandatory); out_of_scope, constraints (optional, asked by LLM-driven interviewers when appropriate)
+- New `ConfirmedIntent` and `InterviewExchange` types in `types.py`
+- `RouterPipeline` accepts `interviewer=…` and `allowed_orgs=…`. When wired, every prompt passes through the interview before planning/routing.
+- `Plan.confirmed_intent` links the plan back to the interview that authorized it.
+- `cli.py` gains `--interview` flag and `--allowed-org` repeatable flag.
+
+Demo of the new flow:
+```
+$ printf 'pakt-world/paktsuite-v2\nGET /healthz returns 200 with {ok:true}\napprove\n' | \
+    fnr --interview --allowed-org pakt-world task "Add /healthz endpoint"
+
+[router-interview] Which repository should this work land in? Allowed: (none configured).
+> pakt-world/paktsuite-v2
+[router-interview] What does 'done' look like? Be specific — I'll use this to verify when the change is ready.
+> GET /healthz returns 200 with {ok:true}
+[router-interview] Here's my understanding:
+  Intent: Add /healthz endpoint
+  Repo: pakt-world/paktsuite-v2
+  Done when: GET /healthz returns 200 with {ok:true}
+Approve to write the plan? (yes / refine: ...)
+> approve
+
+confirmed intent: Add /healthz endpoint
+  target repo:     pakt-world/paktsuite-v2
+  success:         GET /healthz returns 200 with {ok:true}
+  approved:        True
+task 1: Add /healthz endpoint
+  → persona:  backend-engineer
+  → type:     backend
+  → trace: matched dispatch row priority=1 → backend-engineer; validation: ok
+```
+
+Test count: **66 passing** (was 49). New layers: `test_interviewer.py` (validate_intent gate, MockInterviewer fixtures, CLIInterviewer including refine path + max-rounds exhaustion), `test_pipeline_with_interview.py` (end-to-end with interview wired).
 
 ## What's in the branch
 
