@@ -69,6 +69,7 @@ from .interviewer import (
     InterviewIncomplete,
     validate_intent,
 )
+from .tiebreaks import make_claude_cli_tiebreak
 from .pipeline import RouterPipeline, PipelineResult
 
 __all__ = [
@@ -107,6 +108,7 @@ __all__ = [
     "WebInterviewer",
     "InterviewIncomplete",
     "validate_intent",
+    "make_claude_cli_tiebreak",
     "RouterPipeline",
     "PipelineResult",
 ]
