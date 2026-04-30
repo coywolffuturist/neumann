@@ -1,0 +1,10 @@
+{
+  "max_lines_estimate": 500,
+  "max_files_changed": 3,
+  "max_distinct_outputs": 2,
+  "_meta": {
+    "purpose": "Thresholds for the Decomposer pipeline stage. A planned task that exceeds any of these is split into N child tasks (one per target file by default) plus 1 integration task before routing.",
+    "principle": "Micro-tasks have higher single-session success probability than oversized tasks. See feedback_micro_tasks_high_probability.md.",
+    "tuning_notes": "Lower thresholds = more decomposition = safer but more board entries. Higher thresholds = less decomposition = riskier but tighter board. FN-009 (3490 lines, 9 files, 9 distinct outputs) failed; FN-002 (~80 lines, 1 file, 4 outputs) succeeded. Defaults split tasks like FN-009 and leave tasks like FN-002 alone."
+  }
+}

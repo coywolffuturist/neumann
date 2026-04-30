@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .context_resolver import ContextResolver
+from .decomposer import Decomposer
 from .fallback import RoutingFallback
 from .interviewer import Interviewer
 from .persona_selector import PersonaSelector
@@ -56,6 +57,7 @@ class RouterPipeline:
         registry: PersonaRegistry | None = None,
         planner: Planner | None = None,
         interviewer: Interviewer | None = None,
+        decomposer: Decomposer | None = None,
         allowed_orgs: tuple[str, ...] = (),
     ) -> None:
         self.shape_classifier = shape_classifier or ShapeClassifier()
@@ -66,6 +68,11 @@ class RouterPipeline:
         self.validator = validator or RoutingValidator(registry=self.registry)
         self.fallback = fallback or RoutingFallback(registry=self.registry)
         self.planner = planner or MockPlanner()
+        # Decomposer enforces the micro-task principle: oversized tasks get
+        # split into children + an integration task before routing. Pass
+        # ``decomposer=Decomposer(thresholds={...})`` for custom thresholds,
+        # or pass a stub for tests that want decomposition disabled.
+        self.decomposer = decomposer or Decomposer()
         # Interviewer is opt-in. Callers wire one in for entry points where
         # the human is reachable (Slack thread, web chat, terminal stdin).
         # When None, the pipeline behaves like its v1 self: no interview, raw
@@ -79,12 +86,18 @@ class RouterPipeline:
         """Run a raw user prompt through the full pipeline.
 
         Order of stages: ShapeClassifier → (optional Interviewer) →
-        (Planner if mission, else single PlannedTask) → per-task route.
+        (Planner if mission, else single PlannedTask) → Decomposer →
+        per-task route.
 
         The Interviewer is opt-in. When wired, every prompt — single-task
         or mission — passes through it. The Interviewer's ``ConfirmedIntent``
         becomes the input to the Planner. Without an Interviewer the
         pipeline behaves like its v1 self.
+
+        The Decomposer always runs (constructed in __init__). Tasks that
+        fit under the complexity thresholds pass through unchanged; tasks
+        that exceed them get fanned out into children + integration before
+        routing.
         """
         env = env or {}
         shape_decision = self.shape_classifier.classify(prompt)
@@ -124,6 +137,9 @@ class RouterPipeline:
                 tasks=plan.tasks,
                 confirmed_intent=confirmed,
             )
+
+        # Stage: Decompose oversized tasks before routing.
+        plan = self.decomposer.decompose(plan)
 
         routes = tuple(
             self._route_one(t, env, shape_decision=shape_decision) for t in plan.tasks

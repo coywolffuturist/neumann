@@ -58,6 +58,7 @@ from .validator import RoutingValidator
 from .fallback import RoutingFallback
 from .registry import PersonaRegistry, get_persona
 from .planner_protocol import Planner, MockPlanner
+from .decomposer import Decomposer
 from .interviewer import (
     Interviewer,
     MockInterviewer,
@@ -98,6 +99,7 @@ __all__ = [
     # pipeline
     "Planner",
     "MockPlanner",
+    "Decomposer",
     "Interviewer",
     "MockInterviewer",
     "CLIInterviewer",
