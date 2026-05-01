@@ -78,6 +78,24 @@ from .qa_test import (
     ReviewerTier,
     parse_qa_test,
 )
+from .qa_retry import RetryAction, RetryPolicy, load_policy
+from .qa_executor import (
+    ClaudeCliReviewer,
+    QAExecutor,
+    QAResult,
+    QAStepResult,
+    QATask,
+    QAReviewer,
+)
+from .fusion_watcher import (
+    ClawdbotWhatsAppNotifier,
+    FusionClient,
+    FusionTask,
+    FusionWatcher,
+    HttpFusionClient,
+    WatcherStats,
+    WhatsAppNotifier,
+)
 
 __all__ = [
     # types
@@ -124,4 +142,21 @@ __all__ = [
     "QATestType",
     "ReviewerTier",
     "parse_qa_test",
+    # QA executor / retry / watcher
+    "RetryAction",
+    "RetryPolicy",
+    "load_policy",
+    "ClaudeCliReviewer",
+    "QAExecutor",
+    "QAResult",
+    "QAStepResult",
+    "QATask",
+    "QAReviewer",
+    "ClawdbotWhatsAppNotifier",
+    "FusionClient",
+    "FusionTask",
+    "FusionWatcher",
+    "HttpFusionClient",
+    "WatcherStats",
+    "WhatsAppNotifier",
 ]
