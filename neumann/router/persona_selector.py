@@ -46,7 +46,7 @@ class PersonaSelector:
         candidates = [
             row
             for row in self._table
-            if self._matches(row, task_type.value, context.project_type)
+            if self._matches(row, task_type.value, context.project_type, context.column)
         ]
         if not candidates:
             return PersonaDecision(
@@ -112,7 +112,12 @@ class PersonaSelector:
             return json.load(f)
 
     @staticmethod
-    def _matches(row: dict[str, Any], task_type: str, context: str) -> bool:
+    def _matches(row: dict[str, Any], task_type: str, context: str, column: str) -> bool:
         t_match = row["type"] in (task_type, "*")
         c_match = row["context"] in (context, "*")
-        return t_match and c_match
+        # `column` is optional in dispatch rows. Missing → "*" (matches any column,
+        # including the empty initial-dispatch case). Explicit values gate routing
+        # to a specific Fusion lifecycle column.
+        row_column = row.get("column", "*")
+        col_match = row_column in (column, "*")
+        return t_match and c_match and col_match

@@ -71,6 +71,13 @@ from .interviewer import (
     validate_intent,
 )
 from .pipeline import RouterPipeline, PipelineResult
+from .qa_test import (
+    QATest,
+    QATestParseError,
+    QATestType,
+    ReviewerTier,
+    parse_qa_test,
+)
 
 __all__ = [
     # types
@@ -111,4 +118,10 @@ __all__ = [
     "validate_intent",
     "RouterPipeline",
     "PipelineResult",
+    # QA Test
+    "QATest",
+    "QATestParseError",
+    "QATestType",
+    "ReviewerTier",
+    "parse_qa_test",
 ]
