@@ -79,6 +79,7 @@ from .qa_test import (
     parse_qa_test,
 )
 from .qa_retry import RetryAction, RetryPolicy, load_policy
+from .qa_state import WatcherRecord, WatcherState
 from .qa_executor import (
     ClaudeCliReviewer,
     QAExecutor,
@@ -146,6 +147,8 @@ __all__ = [
     "RetryAction",
     "RetryPolicy",
     "load_policy",
+    "WatcherRecord",
+    "WatcherState",
     "ClaudeCliReviewer",
     "QAExecutor",
     "QAResult",
