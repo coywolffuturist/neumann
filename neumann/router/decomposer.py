@@ -1,58 +1,75 @@
-"""Decomposer — split oversized PlannedTasks into micro-tasks before routing.
+"""Decomposer — split oversized intents into sub-intents before planning.
 
-Sits between the Planner and the per-task routing loop. When a planned task
-exceeds the complexity thresholds in ``rules/decomposition_rules.json``, the
-Decomposer fans it out into N child tasks (one per target file by default)
-plus one integration task that ``depends_on`` all of the children.
+Sits between the Interviewer (LLM translation) and the Planner. When a
+``ConfirmedIntent`` exceeds the complexity thresholds in
+``rules/decomposition_rules.json``, the Decomposer fans it out into N
+sub-intents (one per declared success criterion, or one per inferred seam
+when criteria are absent) plus one integration sub-intent that depends on
+every child. The Planner then runs ONCE PER SUB-INTENT, so each Planner
+invocation only ever sees one focused area.
 
-The principle: a task that fits in a single executor session has high
-probability of success; a task that doesn't has thrash-prone failure modes
-(see Brendan's auto-memory ``feedback_micro_tasks_high_probability.md``).
-The Decomposer enforces this principle as a deterministic pipeline stage,
-so every surface (Slack, Lucid, Fusion intake) inherits the behavior for
-free.
+This is Brendan's column-mapping ordering:
 
-Pure function over the Plan. No I/O beyond the rules JSON read at init.
+    Prompt → LLM translation → Decomposer → Planner → Todo (router) →
+    In Progress (executor) → In Review (QA).
+
+Why intent-level (not task-level) decomposition: the Planner's job is to
+turn ONE intent into a tight spec. If the Planner accepts a sprawling
+mission, every spec becomes overlong and the executor falls into the
+FN-009 trap (sub-agent delegation, infinite worktree thrash). Splitting
+at the intent boundary keeps the Planner's input small and the output
+uniformly crisp — 1 intent in → 1 (or a few) tasks out.
+
+Pure function over the ConfirmedIntent. No I/O beyond the rules JSON
+read at init.
+
+See ``docs/specs/pipeline-ordering.md`` for the full design.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import re
-from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
-from .types import Plan, PlannedTask
+from .types import ConfirmedIntent
 
 DEFAULT_RULES_PATH = Path(__file__).parent / "rules" / "decomposition_rules.json"
 
 # Default thresholds applied when the rules file is missing or empty.
-# Rules keys mirror these names exactly.
+# Rules-file keys mirror these names exactly.
 _DEFAULT_THRESHOLDS = {
     "max_lines_estimate": 500,
     "max_files_changed": 3,
     "max_distinct_outputs": 2,
 }
 
-# Verbs that count as "distinct outputs" when found in the task description.
-# Rough heuristic — refined as we see real planner output.
+# Verbs that count as "distinct outputs" when found in intent prose.
+# Rough heuristic — refined as we see real interviewer output.
 _OUTPUT_VERB_RE = re.compile(
-    r"\b(create|add|implement|build|generate|write|extract|introduce)\b",
+    r"\b(create|add|implement|build|generate|write|extract|introduce|refactor|wire)\b",
+    re.IGNORECASE,
+)
+
+# Recognize file paths mentioned in prose. Catches `app/server.js`,
+# `routes/intel.js`, bare `dashboard.html`, etc. Conservative — we'd rather
+# undercount than over-flag prose that mentions filename-like words.
+_FILE_PATH_RE = re.compile(
+    r"\b[\w][\w./-]*\.(?:py|js|ts|tsx|jsx|mjs|cjs|html|css|scss|sql|json|yaml|yml|md|sh|toml)\b",
     re.IGNORECASE,
 )
 
 # Rough conversion: 50 description characters ≈ 1 LOC of resulting code.
 # Pessimistic — better to over-flag than under-flag (false positives just
-# create more micro-tasks; false negatives recreate the FN-009 thrash).
+# create more micro-intents; false negatives recreate the FN-009 thrash).
 _CHARS_PER_LINE_ESTIMATE = 50
 
 
 class Decomposer:
-    """Splits oversized PlannedTasks into micro-tasks + integration task.
+    """Splits oversized ConfirmedIntents into sub-intents + integration intent.
 
-    Construct with no args to use the bundled rules JSON, or pass a
-    custom rules_path / inline thresholds dict for tests.
+    Construct with no args to use the bundled rules JSON, or pass a custom
+    ``rules_path`` / inline ``thresholds`` dict for tests.
     """
 
     def __init__(
@@ -69,122 +86,175 @@ class Decomposer:
 
     # ── public surface ────────────────────────────────────────
 
-    def decompose(self, plan: Plan) -> Plan:
-        """Return a Plan with oversized tasks split into children + integration.
+    def decompose(self, intent: ConfirmedIntent) -> list[ConfirmedIntent]:
+        """Return a list of sub-intents.
 
-        Plans whose tasks all fit under threshold are returned unchanged
-        (object identity is not preserved — a fresh Plan is built — but
-        the task list content is identical).
+        For intents that fit under threshold, returns ``[intent]`` (single
+        element — the Planner runs once on the original intent).
+
+        For oversized intents, returns ``[child_1, ..., child_N, integration]``.
+        Each child is a focused sub-intent; the integration intent records
+        its dependencies on the children via ``extra["depends_on_sub_intents"]``.
         """
-        new_tasks: list[PlannedTask] = []
-        for task in plan.tasks:
-            if not self._exceeds_threshold(task):
-                new_tasks.append(task)
-                continue
-            children, integration = self._split(task)
-            new_tasks.extend(children)
-            new_tasks.append(integration)
-
-        return replace(plan, tasks=tuple(new_tasks))
+        if not self._exceeds_threshold(intent):
+            return [intent]
+        return self._split(intent)
 
     # ── internals ─────────────────────────────────────────────
 
-    def _exceeds_threshold(self, task: PlannedTask) -> bool:
-        if len(task.target_files) > self._thresholds["max_files_changed"]:
+    def _exceeds_threshold(self, intent: ConfirmedIntent) -> bool:
+        prose = self._collect_prose(intent)
+
+        # Hard signal: explicit success_criteria list with too many items.
+        if len(intent.success_criteria) > self._thresholds["max_distinct_outputs"]:
             return True
-        if self._count_distinct_outputs(task) > self._thresholds["max_distinct_outputs"]:
+
+        # Soft signal: distinct output verbs in the prose.
+        if self._count_distinct_outputs(prose) > self._thresholds["max_distinct_outputs"]:
             return True
-        if self._estimate_lines(task) > self._thresholds["max_lines_estimate"]:
+
+        # File-mention signal: prose names too many distinct files.
+        if self._count_distinct_files(prose) > self._thresholds["max_files_changed"]:
             return True
+
+        # Volume signal: prose is just too long to spec as one task.
+        if self._estimate_lines(prose) > self._thresholds["max_lines_estimate"]:
+            return True
+
         return False
 
-    def _split(
-        self, task: PlannedTask
-    ) -> tuple[list[PlannedTask], PlannedTask]:
-        """Fan out one oversized task into N children + 1 integration task."""
-        parent_id = self._task_id(task.title, "")
-        files = task.target_files or ("(unspecified file)",)
+    def _split(self, intent: ConfirmedIntent) -> list[ConfirmedIntent]:
+        """Fan one oversized intent into N children + 1 integration intent."""
+        parent_id = self._intent_id(intent.confirmed_intent)
 
-        children: list[PlannedTask] = []
-        for idx, target_file in enumerate(files):
+        # Prefer to split along the user's explicit success_criteria when
+        # they declared them. Otherwise fall back to inferred seams from
+        # bullets / verb-led sentences / file mentions.
+        if intent.success_criteria:
+            seams = list(intent.success_criteria)
+        else:
+            seams = self._infer_seams(self._collect_prose(intent))
+
+        if not seams:
+            # Pathological case — exceeded threshold but no clean seams to
+            # split along. Return as-is to avoid producing junk sub-intents.
+            return [intent]
+
+        children: list[ConfirmedIntent] = []
+        for idx, seam in enumerate(seams):
             child_id = f"{parent_id}-c{idx}"
-            child_title = f"{task.title} — {self._short_file_label(target_file)}"
-            child_description = (
-                f"Subset of parent task '{task.title}'.\n"
-                f"This child handles a single file: {target_file}.\n\n"
-                f"Parent description (for context):\n{task.description}"
+            child_focus = (
+                f"{intent.confirmed_intent}\n\nFocus for this sub-intent: {seam}"
             )
             children.append(
-                PlannedTask(
-                    title=child_title,
-                    description=child_description,
-                    type_hints=task.type_hints,
-                    target_files=(target_file,) if target_file != "(unspecified file)" else (),
-                    acceptance_criteria=task.acceptance_criteria,
-                    depends_on=task.depends_on,
+                ConfirmedIntent(
+                    raw_prompt=intent.raw_prompt,
+                    confirmed_intent=child_focus,
+                    target_repo=intent.target_repo,
+                    success_criteria=(seam,),
+                    constraints=intent.constraints,
+                    out_of_scope=intent.out_of_scope,
+                    human_approver_id=intent.human_approver_id,
+                    human_approved=intent.human_approved,
+                    transcript=intent.transcript,
                     extra={
-                        **task.extra,
-                        "parent_task_id": parent_id,
-                        "task_id": child_id,
+                        **intent.extra,
+                        "parent_intent_id": parent_id,
+                        "sub_intent_id": child_id,
                         "decomposed": True,
                     },
                 )
             )
 
         integration_id = f"{parent_id}-int"
-        integration_title = f"{task.title} — integration"
-        integration_description = (
-            f"Integration task for the decomposed parent '{task.title}'.\n"
-            f"Wire up the {len(children)} child task(s) into a coherent whole.\n"
-            "Run after every child has produced its output. Do not begin until "
-            "all children are merged."
+        integration_focus = (
+            f"Integration step for the decomposed parent intent: "
+            f"{intent.confirmed_intent[:200]}\n\n"
+            f"Wire up the {len(children)} child sub-intents into a coherent "
+            "whole. Run after every child has produced its output."
         )
-        integration = PlannedTask(
-            title=integration_title,
-            description=integration_description,
-            type_hints=task.type_hints,
-            target_files=(),
-            acceptance_criteria=task.acceptance_criteria,
-            depends_on=tuple(c.extra["task_id"] for c in children),
+        integration = ConfirmedIntent(
+            raw_prompt=intent.raw_prompt,
+            confirmed_intent=integration_focus,
+            target_repo=intent.target_repo,
+            success_criteria=("All child outputs are integrated cleanly.",),
+            constraints=intent.constraints,
+            out_of_scope=intent.out_of_scope,
+            human_approver_id=intent.human_approver_id,
+            human_approved=intent.human_approved,
+            transcript=intent.transcript,
             extra={
-                **task.extra,
-                "parent_task_id": parent_id,
-                "task_id": integration_id,
+                **intent.extra,
+                "parent_intent_id": parent_id,
+                "sub_intent_id": integration_id,
                 "decomposed": True,
                 "is_integration": True,
+                "depends_on_sub_intents": tuple(
+                    c.extra["sub_intent_id"] for c in children
+                ),
             },
         )
-        return children, integration
+
+        return [*children, integration]
 
     @staticmethod
-    def _count_distinct_outputs(task: PlannedTask) -> int:
-        text = " ".join(
-            (
-                task.title,
-                task.description,
-                task.acceptance_criteria,
-            )
-        )
-        return len(_OUTPUT_VERB_RE.findall(text))
+    def _collect_prose(intent: ConfirmedIntent) -> str:
+        """Concatenate intent fields the heuristics scan as one blob."""
+        parts: list[str] = [intent.confirmed_intent]
+        parts.extend(intent.success_criteria)
+        parts.extend(intent.constraints)
+        return "\n".join(p for p in parts if p)
 
     @staticmethod
-    def _estimate_lines(task: PlannedTask) -> int:
-        # Use both description and acceptance_criteria — the planner often
-        # puts the meaty bits in one or the other.
-        char_count = len(task.description) + len(task.acceptance_criteria)
-        return char_count // _CHARS_PER_LINE_ESTIMATE
+    def _count_distinct_outputs(prose: str) -> int:
+        return len(_OUTPUT_VERB_RE.findall(prose))
 
     @staticmethod
-    def _task_id(title: str, salt: str) -> str:
-        h = hashlib.sha256((title + "|" + salt).encode("utf-8")).hexdigest()
-        return f"dt-{h[:10]}"
+    def _count_distinct_files(prose: str) -> int:
+        return len({m.lower() for m in _FILE_PATH_RE.findall(prose)})
 
     @staticmethod
-    def _short_file_label(path: str) -> str:
-        # Keep enough of the path to distinguish files with same basename.
-        # "app/routes/intel.js" → "routes/intel.js"; bare names stay bare.
-        parts = path.split("/")
-        return "/".join(parts[-2:]) if len(parts) >= 2 else path
+    def _estimate_lines(prose: str) -> int:
+        return len(prose) // _CHARS_PER_LINE_ESTIMATE
+
+    @staticmethod
+    def _intent_id(text: str) -> str:
+        h = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return f"di-{h[:10]}"
+
+    @staticmethod
+    def _infer_seams(prose: str) -> list[str]:
+        """Best-effort split into sub-intent seams when criteria are absent.
+
+        Tries (in order):
+          1. Bullet items at the top of the prose
+          2. Sentences that start with an output verb
+          3. Distinct file mentions, each becomes "work on <file>"
+        """
+        lines = [ln.strip() for ln in prose.splitlines() if ln.strip()]
+        bullets = [
+            ln.lstrip("-*• ").strip()
+            for ln in lines
+            if ln.startswith(("-", "*", "•"))
+        ]
+        if len(bullets) >= 2:
+            return bullets
+
+        verb_seams: list[str] = []
+        for sentence in re.split(r"(?<=[.!?])\s+", prose):
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            if _OUTPUT_VERB_RE.search(sentence):
+                verb_seams.append(sentence)
+        if len(verb_seams) >= 2:
+            return verb_seams
+
+        files = sorted({m for m in _FILE_PATH_RE.findall(prose)})
+        if len(files) >= 2:
+            return [f"Work on {f}" for f in files]
+
+        return []
 
     @staticmethod
     def _load_rules(path: Path) -> dict[str, int]:
