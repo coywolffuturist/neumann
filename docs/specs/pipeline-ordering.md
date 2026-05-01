@@ -1,8 +1,7 @@
 # Spec: Neumann Pipeline Ordering — Decomposer-before-Planner-per-intent
 
-**Status:** Designed 2026-05-01. NOT yet implemented (do not ship without explicit go-ahead from Brendan).
-**Parent PR:** #43 (current state has wrong-shape Decomposer at task-level / post-Planner).
-**Refactor lands on:** `feature/router-decomposer` as additional commits, OR a follow-up PR off it.
+**Status:** Designed 2026-05-01. **APPROVED & SHIPPED 2026-05-01** in commit `74c36c0` on `feature/router-decomposer` (PR #43). All 160 tests pass. This spec stays as historical record of the design rationale.
+**Parent PR:** #43 — see PR description for the as-shipped summary.
 
 ---
 

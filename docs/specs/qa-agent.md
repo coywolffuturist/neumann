@@ -1,6 +1,6 @@
 # Spec: QA Agent at the In Review Column
 
-**Status:** Designed 2026-04-30. Revised 2026-05-01 per Brendan's review feedback. NOT yet implemented.
+**Status:** Designed 2026-04-30. Revised 2026-05-01 per Brendan's review feedback. **APPROVED 2026-05-01** — ready for Phase 1 implementation in next session. Implementation deferred from current session due to context window — see `session_handoff_2026-05-01.md` for resumption instructions.
 **Ships across:** `coywolffuturist/neumann` (persona defs + QA Test format) AND `coywolffuturist/coywolf` (fusion-watchdog post-deploy detector + Coywolf-driven async QA).
 
 ---
