@@ -58,6 +58,7 @@ from .validator import RoutingValidator
 from .fallback import RoutingFallback
 from .registry import PersonaRegistry, get_persona
 from .planner_protocol import Planner, MockPlanner
+from .decomposer import Decomposer
 from .interviewer import (
     Interviewer,
     MockInterviewer,
@@ -70,6 +71,32 @@ from .interviewer import (
     validate_intent,
 )
 from .pipeline import RouterPipeline, PipelineResult
+from .qa_test import (
+    QATest,
+    QATestParseError,
+    QATestType,
+    ReviewerTier,
+    parse_qa_test,
+)
+from .qa_retry import RetryAction, RetryPolicy, load_policy
+from .qa_state import WatcherRecord, WatcherState
+from .qa_executor import (
+    ClaudeCliReviewer,
+    QAExecutor,
+    QAResult,
+    QAStepResult,
+    QATask,
+    QAReviewer,
+)
+from .fusion_watcher import (
+    ClawdbotWhatsAppNotifier,
+    FusionClient,
+    FusionTask,
+    FusionWatcher,
+    HttpFusionClient,
+    WatcherStats,
+    WhatsAppNotifier,
+)
 
 __all__ = [
     # types
@@ -98,6 +125,7 @@ __all__ = [
     # pipeline
     "Planner",
     "MockPlanner",
+    "Decomposer",
     "Interviewer",
     "MockInterviewer",
     "CLIInterviewer",
@@ -109,4 +137,29 @@ __all__ = [
     "validate_intent",
     "RouterPipeline",
     "PipelineResult",
+    # QA Test
+    "QATest",
+    "QATestParseError",
+    "QATestType",
+    "ReviewerTier",
+    "parse_qa_test",
+    # QA executor / retry / watcher
+    "RetryAction",
+    "RetryPolicy",
+    "load_policy",
+    "WatcherRecord",
+    "WatcherState",
+    "ClaudeCliReviewer",
+    "QAExecutor",
+    "QAResult",
+    "QAStepResult",
+    "QATask",
+    "QAReviewer",
+    "ClawdbotWhatsAppNotifier",
+    "FusionClient",
+    "FusionTask",
+    "FusionWatcher",
+    "HttpFusionClient",
+    "WatcherStats",
+    "WhatsAppNotifier",
 ]

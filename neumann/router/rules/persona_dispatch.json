@@ -1,4 +1,6 @@
 [
+  { "type": "*",                  "context": "*",                "column": "in-review",         "persona": "qa",                  "priority": 0, "note": "Pre-merge QA gate. Any task entering the In Review column routes to the qa persona (Opus 4.7), regardless of original task type. See docs/specs/qa-agent.md." },
+
   { "type": "verification",       "context": "*",                "persona": "qa-engineer",         "priority": 1, "note": "QA Engineer always handles verification — its soul: 'never assume code works, I verify'." },
 
   { "type": "security",           "context": "architecture",     "persona": "cto",                  "priority": 1, "note": "Architecture-level security goes to CTO." },

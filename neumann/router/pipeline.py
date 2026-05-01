@@ -1,11 +1,26 @@
-"""RouterPipeline — orchestrates shape → plan → classify → context → select → validate → fallback.
+"""RouterPipeline — orchestrates the universal intake pipeline.
 
-This is the public entry point. ``RouterPipeline`` is composed of the
-individual modules so callers can swap any of them for a custom impl
-(custom rules path, alternative resolver, real LLM tiebreak callback,
-etc.).
+Brendan's column-mapping ordering:
 
-Mirrors ``neumann.pipeline.NeumannPipeline``.
+    Prompt
+      → LLM translation (Interviewer / clarify)
+      → Decomposer (split intent into N sub-intents — operates on prose)
+      → Planner (one Planner invocation per sub-intent → 1+ tasks each)
+      → emit N tasks into Fusion's Todo column
+
+After this pipeline, Fusion takes over: Todo (router assigns persona) →
+In Progress (executor) → In Review (QA agent).
+
+The Decomposer sits BEFORE the Planner so each Planner invocation only
+sees one focused sub-intent. This keeps the Planner's input small and
+its output uniformly tight (1 intent in → 1+ tasks out), avoiding the
+FN-009 trap (sub-agent delegation, infinite worktree thrash).
+
+``RouterPipeline`` is composed of the individual modules so callers can
+swap any of them for a custom impl (custom rules path, alternative
+resolver, real LLM tiebreak callback, etc.).
+
+See ``docs/specs/pipeline-ordering.md`` for the full design.
 """
 from __future__ import annotations
 
@@ -15,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .context_resolver import ContextResolver
+from .decomposer import Decomposer
 from .fallback import RoutingFallback
 from .interviewer import Interviewer
 from .persona_selector import PersonaSelector
@@ -56,6 +72,7 @@ class RouterPipeline:
         registry: PersonaRegistry | None = None,
         planner: Planner | None = None,
         interviewer: Interviewer | None = None,
+        decomposer: Decomposer | None = None,
         allowed_orgs: tuple[str, ...] = (),
     ) -> None:
         self.shape_classifier = shape_classifier or ShapeClassifier()
@@ -66,6 +83,11 @@ class RouterPipeline:
         self.validator = validator or RoutingValidator(registry=self.registry)
         self.fallback = fallback or RoutingFallback(registry=self.registry)
         self.planner = planner or MockPlanner()
+        # Decomposer enforces the micro-task principle: oversized tasks get
+        # split into children + an integration task before routing. Pass
+        # ``decomposer=Decomposer(thresholds={...})`` for custom thresholds,
+        # or pass a stub for tests that want decomposition disabled.
+        self.decomposer = decomposer or Decomposer()
         # Interviewer is opt-in. Callers wire one in for entry points where
         # the human is reachable (Slack thread, web chat, terminal stdin).
         # When None, the pipeline behaves like its v1 self: no interview, raw
@@ -76,54 +98,94 @@ class RouterPipeline:
     # ── public surface ────────────────────────────────────────
 
     def process(self, prompt: str, env: dict[str, Any] | None = None) -> PipelineResult:
-        """Run a raw user prompt through the full pipeline.
+        """Run a raw user prompt through the full intake pipeline.
 
-        Order of stages: ShapeClassifier → (optional Interviewer) →
-        (Planner if mission, else single PlannedTask) → per-task route.
+        Stage order:
+          1. ShapeClassifier — advisory single-vs-mission classification.
+          2. Interviewer — LLM translation. Optional. Produces ConfirmedIntent.
+          3. Decomposer — split the intent into N sub-intents (passthrough
+             for small intents).
+          4. Planner — runs ONCE PER SUB-INTENT, producing 1+ tasks each.
+          5. Per-task routing — task_classifier → context → persona → fallback → validate.
 
-        The Interviewer is opt-in. When wired, every prompt — single-task
-        or mission — passes through it. The Interviewer's ``ConfirmedIntent``
-        becomes the input to the Planner. Without an Interviewer the
-        pipeline behaves like its v1 self.
+        The Interviewer is opt-in. When wired, every prompt passes through
+        it. When None and Shape says MISSION, the pipeline synthesizes a
+        passthrough ConfirmedIntent from the raw prompt so downstream stages
+        see uniform input.
+
+        Fast path: when ``Shape.SINGLE_TASK`` AND no interviewer is wired,
+        we skip Interview/Decompose/Plan and route the prompt directly as
+        a thin PlannedTask. This is the v1 behavior preserved for callers
+        that don't need the heavier pipeline.
         """
         env = env or {}
         shape_decision = self.shape_classifier.classify(prompt)
 
-        # Stage: Interview (optional but recommended for any human-facing entry point)
-        confirmed: ConfirmedIntent | None = None
-        if self.interviewer is not None:
-            confirmed = self.interviewer.interview(prompt, env=env)
-            # Merge target_repo into env so the rest of the pipeline (and
-            # downstream `fn task create` shell-out) sees the human-confirmed repo.
-            env = {**env, "target_repo": confirmed.target_repo, "confirmed_intent": confirmed}
-
-        if shape_decision.shape == Shape.SINGLE_TASK:
-            base_prompt = confirmed.confirmed_intent if confirmed else prompt
-            task = PlannedTask.from_prompt(base_prompt)
+        # Fast path: SINGLE_TASK shape + no interviewer = v1 direct route.
+        # Preserves behavior for callers that intentionally skip interview.
+        if shape_decision.shape == Shape.SINGLE_TASK and self.interviewer is None:
+            task = PlannedTask.from_prompt(prompt)
             trace = self._route_one(task, env, shape_decision=shape_decision)
             return PipelineResult(
                 shape_decision=shape_decision,
-                confirmed_intent=confirmed,
+                confirmed_intent=None,
                 plan=None,
                 routes=(trace,),
             )
 
-        # Mission shape — invoke planner. Pass the confirmed intent as
-        # additional context so the planner stays grounded.
-        planner_input = confirmed.confirmed_intent if confirmed else prompt
-        planner_context = {**env}
-        if confirmed is not None:
-            planner_context["confirmed_intent"] = confirmed
-        plan = self.planner.plan(planner_input, context=planner_context)
-        if confirmed is not None:
-            # Stamp the link from plan back to the interview that authorized it.
-            plan = Plan(
-                mission_title=plan.mission_title,
-                summary=plan.summary,
-                assumptions=plan.assumptions,
-                tasks=plan.tasks,
-                confirmed_intent=confirmed,
+        # Full path: LLM translation (or synthesize) → Decompose →
+        # Plan-per-intent → routes.
+        if self.interviewer is not None:
+            confirmed = self.interviewer.interview(prompt, env=env)
+        else:
+            # No interviewer wired but mission-shaped prompt — synthesize a
+            # passthrough ConfirmedIntent so the rest of the pipeline has
+            # uniform input.
+            confirmed = ConfirmedIntent(
+                raw_prompt=prompt,
+                confirmed_intent=prompt,
+                target_repo=env.get("target_repo", ""),
             )
+        env = {
+            **env,
+            "target_repo": confirmed.target_repo,
+            "confirmed_intent": confirmed,
+        }
+
+        # Stage: Decompose intent into sub-intents.
+        sub_intents = self.decomposer.decompose(confirmed)
+
+        # Stage: Planner runs once per sub-intent. Each invocation sees a
+        # single focused area — the Planner's output stays uniformly tight.
+        all_tasks: list[PlannedTask] = []
+        sub_plans: list[Plan] = []
+        for sub_intent in sub_intents:
+            planner_context = {**env, "confirmed_intent": sub_intent}
+            sub_plan = self.planner.plan(
+                sub_intent.confirmed_intent, context=planner_context
+            )
+            sub_plans.append(sub_plan)
+            all_tasks.extend(sub_plan.tasks)
+
+        # Aggregate per-sub-intent plans into one Plan stamped with the
+        # original (pre-decomposition) ConfirmedIntent.
+        # mission_title: when no decomposition happened (1 sub-intent), use
+        # the Planner's title — it's authoritative for that single scope.
+        # When decomposition produced multiple sub-intents, the Planner-side
+        # titles are necessarily narrower than the overall mission, so we
+        # fall back to the user-confirmed intent as the umbrella title.
+        if len(sub_plans) == 1 and sub_plans[0].mission_title:
+            mission_title = sub_plans[0].mission_title
+        else:
+            mission_title = confirmed.confirmed_intent[:120] or "Untitled"
+
+        plan = Plan(
+            mission_title=mission_title,
+            summary=confirmed.confirmed_intent,
+            assumptions=(),
+            tasks=tuple(all_tasks),
+            confirmed_intent=confirmed,
+        )
 
         routes = tuple(
             self._route_one(t, env, shape_decision=shape_decision) for t in plan.tasks

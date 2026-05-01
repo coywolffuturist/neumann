@@ -107,3 +107,38 @@ def test_unavailable_persona_falls_back(selector: PersonaSelector) -> None:
     )
     assert decision.persona == FALLBACK_SENTINEL
     assert decision.fallback_used
+
+
+def _ctx_col(column: str, project_type: str = "*") -> RoutingContext:
+    return RoutingContext(project_type=project_type, column=column)
+
+
+def test_in_review_column_routes_to_qa_regardless_of_task_type(selector: PersonaSelector) -> None:
+    """Pre-merge QA gate: any task entering In Review goes to qa persona."""
+    for task_type in (
+        TaskType.FRONTEND,
+        TaskType.BACKEND,
+        TaskType.BUGFIX,
+        TaskType.IMPLEMENTATION,
+        TaskType.STRATEGY,
+    ):
+        decision = selector.select(task_type, _ctx_col("in-review"))
+        assert decision.persona == "qa", f"task_type={task_type.value} did not route to qa in In Review"
+        assert decision.dispatch_priority == 0
+        assert not decision.fallback_used
+
+
+def test_in_review_dispatch_does_not_leak_to_other_columns(selector: PersonaSelector) -> None:
+    """Initial dispatch (no column) must not route to qa just because the rule exists."""
+    decision = selector.select(TaskType.FRONTEND, _ctx_col(""))
+    assert decision.persona == "frontend-engineer"
+    assert decision.dispatch_priority == 1
+
+
+def test_other_columns_use_normal_task_type_dispatch(selector: PersonaSelector) -> None:
+    """Columns other than in-review do not trigger the QA override."""
+    for column in ("planning", "todo", "in-progress", "done"):
+        decision = selector.select(TaskType.FRONTEND, _ctx_col(column))
+        assert decision.persona == "frontend-engineer", (
+            f"column={column} unexpectedly routed away from frontend-engineer"
+        )

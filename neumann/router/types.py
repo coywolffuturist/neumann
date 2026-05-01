@@ -139,6 +139,7 @@ class RoutingContext:
     project_type: str = "*"  # frontend-project | backend-project | test-project | architecture | *
     available_personas: tuple[PersonaId, ...] = ()
     persona_load: dict[PersonaId, int] = field(default_factory=dict)
+    column: str = ""  # Fusion column when re-routing on lifecycle transitions: planning|todo|in-progress|in-review|done. Empty = initial dispatch.
     extra: dict[str, Any] = field(default_factory=dict)
 
 
