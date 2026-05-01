@@ -1,0 +1,50 @@
+[
+  {
+    "priority": 1,
+    "trigger": "missing_target_repo",
+    "question": "Which repository should this work land in? Allowed: {available_repos}.",
+    "expects": "repo-spec",
+    "required_field": "target_repo",
+    "note": "Repo targeting is mandatory. Validated against the project's org allowlist."
+  },
+  {
+    "priority": 2,
+    "trigger": "missing_success_criteria",
+    "question": "What does 'done' look like? Be specific — I'll use this to verify when the change is ready.",
+    "expects": "free-text",
+    "required_field": "success_criteria",
+    "note": "At least one concrete, mechanically-checkable success criterion is mandatory."
+  },
+  {
+    "priority": 3,
+    "trigger": "ambiguous_scope",
+    "question": "What's the scope here — minimum viable change, or full feature with edge cases? Tell me what to leave alone.",
+    "expects": "free-text",
+    "required_field": null,
+    "note": "Optional. Helps the Planner avoid over-decomposing or missing scope."
+  },
+  {
+    "priority": 4,
+    "trigger": "ambiguous_scope",
+    "question": "Anything explicitly out of scope? Files, modules, or surfaces I should not touch?",
+    "expects": "free-text",
+    "required_field": null,
+    "note": "Optional but high-leverage. Prevents collateral damage. Not blocking validation — LLM-driven interviewers decide when to ask."
+  },
+  {
+    "priority": 5,
+    "trigger": "constraints",
+    "question": "Any constraints I should respect? Deadline, dependency lock, security/compliance rule?",
+    "expects": "free-text",
+    "required_field": null,
+    "note": "Optional. Not blocking validation."
+  },
+  {
+    "priority": 99,
+    "trigger": "always_last",
+    "question": "Here's my understanding: \n\n  Intent: {confirmed_intent}\n  Repo: {target_repo}\n  Done when: {success_criteria}\n\nApprove to write the plan? (yes / refine: ...)",
+    "expects": "approval",
+    "required_field": "human_approved",
+    "note": "Final confirmation gate. Plan-writing only proceeds on explicit approval."
+  }
+]

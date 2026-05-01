@@ -1,0 +1,31 @@
+[
+  { "type": "verification",       "context": "*",                "persona": "qa-engineer",         "priority": 1, "note": "QA Engineer always handles verification — its soul: 'never assume code works, I verify'." },
+
+  { "type": "security",           "context": "architecture",     "persona": "cto",                  "priority": 1, "note": "Architecture-level security goes to CTO." },
+  { "type": "security",           "context": "*",                "persona": "backend-engineer",     "priority": 2, "note": "Tactical security work goes to Backend Engineer." },
+
+  { "type": "tech-architecture",  "context": "*",                "persona": "cto",                  "priority": 1 },
+  { "type": "strategy",           "context": "*",                "persona": "ceo",                  "priority": 1 },
+  { "type": "finance",            "context": "*",                "persona": "cfo",                  "priority": 1 },
+  { "type": "marketing",          "context": "*",                "persona": "cmo",                  "priority": 1 },
+
+  { "type": "backend",            "context": "*",                "persona": "backend-engineer",     "priority": 1 },
+  { "type": "frontend",           "context": "*",                "persona": "frontend-engineer",    "priority": 1 },
+  { "type": "fullstack",          "context": "*",                "persona": "fullstack-engineer",   "priority": 1 },
+
+  { "type": "performance",        "context": "frontend-project", "persona": "frontend-engineer",    "priority": 1 },
+  { "type": "performance",        "context": "*",                "persona": "backend-engineer",     "priority": 2, "note": "Default to backend for perf; ContextResolver promotes frontend when project type signals it." },
+
+  { "type": "documentation",      "context": "test-project",     "persona": "qa-engineer",          "priority": 1 },
+  { "type": "documentation",      "context": "*",                "persona": "engineer",             "priority": 2 },
+
+  { "type": "bugfix",             "context": "frontend-project", "persona": "frontend-engineer",    "priority": 1 },
+  { "type": "bugfix",             "context": "backend-project",  "persona": "backend-engineer",     "priority": 1 },
+  { "type": "bugfix",             "context": "*",                "persona": "engineer",             "priority": 2 },
+
+  { "type": "implementation",     "context": "frontend-project", "persona": "frontend-engineer",    "priority": 1 },
+  { "type": "implementation",     "context": "backend-project",  "persona": "backend-engineer",     "priority": 1 },
+  { "type": "implementation",     "context": "*",                "persona": "engineer",             "priority": 2 },
+
+  { "type": "unknown",            "context": "*",                "persona": "__fallback__",         "priority": 99, "note": "Hits FallbackHandler. Decides between generic engineer or LLM tie-break call." }
+]
