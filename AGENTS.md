@@ -1,0 +1,75 @@
+# AGENTS.md — Neumann
+
+You are Pi (Fusion's agent runtime), executing tasks in Brendan's `neumann` project — the universal top-of-funnel that all Coywolf surfaces (Fusion, Slack/Coywolf bot, Lucid, future products) use to convert raw user prompts into routed, executable work.
+
+## Project root (memorize this)
+
+`/Users/coywolfden/coywolf/repos/neumann` is the project root. When Fusion spawns you, it is your CWD. Resolve relative paths against this root, **not** against `$HOME`.
+
+Do **not** start brute-force `find` traversals of `/Users/coywolfden` — they take 10+ minutes and stall the task. Run `pwd` and `ls` first.
+
+## What Neumann is
+
+Neumann is the deterministic + Pi-readable pipeline for the universal intake flow:
+
+```
+User prompt
+    ↓
+Interviewer        ← clarifying Q&A (uses interview_questions.json)
+    ↓
+ConfirmedIntent    ← human-blessed scope, repo, success criteria
+    ↓
+Planner            ← LLM emits structured Plan{tasks: [PlannedTask]}
+    ↓
+[Decomposer]       ← splits oversized planned tasks into micro-tasks (NEW)
+    ↓
+Per-task: ShapeClassifier → TaskTypeClassifier → ContextResolver → PersonaSelector → Validator → Fallback
+    ↓
+Routed PersonaDecision per task
+```
+
+Surfaces (Fusion, Slack, Lucid, etc.) call into Neumann; they do NOT re-implement the pipeline locally.
+
+## Layout
+
+- `neumann/router/` — the active router pipeline package. Entry point: `neumann/router/pipeline.py`.
+  - `interviewer.py`, `planner_protocol.py`, `shape_classifier.py`, `task_classifier.py`, `context_resolver.py`, `persona_selector.py`, `validator.py`, `fallback.py`, `registry.py`, `cli.py`, `types.py`
+  - `rules/` — Pi-readable JSON rule files: `shape_rules.json`, `task_type_rules.json`, `persona_dispatch.json`, `interview_questions.json`. **Source of truth for routing logic.** Edit these to change behavior; do NOT hardcode in .py files.
+  - `personas/` — persona definitions (e.g. `planner.json`)
+- `neumann/` (top-level) — older Neumann (formatters/streaming for response display). Routing work lives in `neumann/router/`.
+- `tests/` — pytest. Run: `pytest -q` from repo root.
+- `rules/`, `MORNING_REVIEW.md`, `SPEC.md`, `README.md`, `pyproject.toml`
+
+## Active branches
+
+- `main` — baseline
+- `feature/router` (PR #41 OPEN) — adds the router pipeline as described above. Most new work bases off this.
+- `feature/router-haiku-tiebreak` (PR #42 OPEN) — claude-CLI tiebreak for ambiguous classifier decisions.
+
+When in doubt, base new feature branches off `feature/router`.
+
+## Pipeline guarantees (don't break these)
+
+1. **LLM plans first, Neumann routes second.** Never reverse. Routing operates on structured `PlannedTask`s, not raw prose.
+2. **Rules are Pi-readable.** All routing decisions trace back to `rules/*.json`. No magic constants in code.
+3. **Idempotent stages.** Each stage takes typed input, returns typed output, no shared mutable state.
+
+## Memory
+
+`.fusion/memory/MEMORY.md` holds durable Neumann learnings (architecture, rule conventions, gotchas). Search before planning; append when you discover something future tasks need.
+
+## Testing
+
+- Test runner: `pytest -q` from repo root.
+- Existing test count (per PR #41): 85 tests passing.
+- New code MUST have tests in `tests/router/<module>_test.py` mirroring the package layout.
+
+## Commit hygiene
+
+Fusion auto-commits as `Fusion <noreply@runfusion.ai>` on `fusion/<task-id>` branches. Don't include `.fusion/` artifacts in commits.
+
+## Cross-references
+
+- `feedback_neumann_top_of_funnel.md` (in Brendan's auto-memory) — Neumann owns the entire pipeline; surfaces are thin.
+- `feedback_micro_tasks_high_probability.md` — the principle behind the upcoming Decomposer stage.
+- `feedback_plan_first_route_second.md` — the LLM-then-router order.
