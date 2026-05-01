@@ -202,6 +202,67 @@ class HttpFusionClient:
 
 
 @dataclass(frozen=True)
+class DryRunFusionClient:
+    """Read-only Fusion client. Wraps a real client for ``list_in_review``
+    so the smoke test sees real tasks; logs (instead of executing) every
+    mutation. Used by ``--dry-run`` so deploy verification can't move
+    tasks, post comments, or pause anything.
+    """
+
+    inner: FusionClient
+
+    def list_in_review(self) -> list[FusionTask]:
+        return self.inner.list_in_review()
+
+    def move_to_done(self, task_id: str) -> None:
+        log.info("[dry-run] would move_to_done task=%s", task_id)
+
+    def move_to_in_progress(self, task_id: str) -> None:
+        log.info("[dry-run] would move_to_in_progress task=%s", task_id)
+
+    def pause(self, task_id: str) -> None:
+        log.info("[dry-run] would pause task=%s", task_id)
+
+    def add_comment(self, task_id: str, *, text: str, author: str = COMMENT_AUTHOR) -> None:
+        log.info(
+            "[dry-run] would add_comment task=%s author=%s text=%s",
+            task_id, author, text[:200].replace("\n", " | "),
+        )
+
+
+@dataclass(frozen=True)
+class DryRunNotifier:
+    """Logs notifications instead of sending. WhatsApp stays quiet."""
+
+    def notify(self, message: str) -> None:
+        log.info("[dry-run] would notify: %s", message)
+
+
+@dataclass(frozen=True)
+class DryRunWatcherState:
+    """Read-real, write-noop state. Lets dry-run still consult real
+    retry counts (so the dispatch decision matches what production
+    would do) without persisting any new state."""
+
+    inner: WatcherState
+
+    def attempts(self, task_id: str) -> int:
+        return self.inner.attempts(task_id)
+
+    def is_paused(self, task_id: str) -> bool:
+        return self.inner.is_paused(task_id)
+
+    def record(self, rec: WatcherRecord) -> None:
+        log.info(
+            "[dry-run] would record task=%s attempts=%d verdict=%s paused=%s",
+            rec.task_id, rec.attempts, rec.last_verdict, rec.paused,
+        )
+
+    def clear(self, task_id: str) -> None:
+        log.info("[dry-run] would clear task=%s", task_id)
+
+
+@dataclass(frozen=True)
 class ClawdbotWhatsAppNotifier:
     """Production WhatsApp notifier — shells to ``clawdbot`` CLI.
 
@@ -395,12 +456,22 @@ class FusionWatcher:
 # ── CLI ─────────────────────────────────────────────────────────────────────
 
 
-def _build_default_watcher() -> FusionWatcher:
+def _build_default_watcher(*, dry_run: bool = False) -> FusionWatcher:
+    real_fusion: FusionClient = HttpFusionClient()
+    real_state = WatcherState()
+    if dry_run:
+        return FusionWatcher(
+            fusion=DryRunFusionClient(inner=real_fusion),
+            executor=QAExecutor(reviewer=ClaudeCliReviewer()),
+            notifier=DryRunNotifier(),
+            state=DryRunWatcherState(inner=real_state),
+            policy=load_policy(),
+        )
     return FusionWatcher(
-        fusion=HttpFusionClient(),
+        fusion=real_fusion,
         executor=QAExecutor(reviewer=ClaudeCliReviewer()),
         notifier=ClawdbotWhatsAppNotifier(),
-        state=WatcherState(),
+        state=real_state,
         policy=load_policy(),
     )
 
@@ -410,6 +481,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--once", action="store_true", help="run one tick and exit")
     parser.add_argument("--loop", action="store_true", help="run indefinitely")
     parser.add_argument("--interval", type=float, default=30.0, help="loop sleep seconds")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="log mutations + notifications instead of executing them; "
+                             "leaves Fusion + state file untouched. Use for first-run "
+                             "smoke tests on the Mac Mini.")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args(argv)
 
@@ -421,7 +496,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
-    watcher = _build_default_watcher()
+    if args.dry_run:
+        log.info("DRY-RUN: no Fusion mutations, no WhatsApp, no state writes")
+    watcher = _build_default_watcher(dry_run=args.dry_run)
 
     if args.once:
         stats = watcher.tick()
