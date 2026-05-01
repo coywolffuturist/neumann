@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "neumann"
@@ -8,11 +8,19 @@ version = "0.1.0"
 description = "Deterministic symbolic routing kernel for AI agent systems"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 dependencies = []
 
+[tool.setuptools.packages.find]
+include = ["neumann*"]
+
+[project.scripts]
+neumann = "neumann.cli:main"
+neumann-tui = "neumann.tui:run_tui"
+
 [project.optional-dependencies]
-dev = ["pytest>=7", "pytest-cov"]
+dev = ["pytest>=7", "pytest-cov", "anyio>=3"]
+tui = ["textual>=0.40", "rich>=13"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
