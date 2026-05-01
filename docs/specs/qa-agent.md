@@ -1,6 +1,10 @@
 # Spec: QA Agent at the In Review Column
 
-**Status:** Designed 2026-04-30. Revised 2026-05-01 per Brendan's review feedback. **APPROVED 2026-05-01.** **Phase 1 SHIPPED 2026-05-01** in commit `b0029c3` on branch `feature/router-decomposer` (PR #43): schema + qa persona + qa-system-prompt + Planner system-prompt + In Review column dispatch + `parse_qa_test` parser + 32 new tests. **Phase 2 (pre-merge executor)** and **Phase 3 (Coywolf post-deploy cron)** remain.
+**Status:** Designed 2026-04-30. Revised 2026-05-01 per Brendan's review feedback. **APPROVED 2026-05-01.**
+- **Phase 1 SHIPPED 2026-05-01** in commit `b0029c3` on `feature/router-decomposer` (PR #43): schema + qa persona + qa-system-prompt + Planner system-prompt + In Review column dispatch + `parse_qa_test` parser + 32 new tests.
+- **Phase 2 SHIPPED 2026-05-01** on `feature/qa-phase2-watcher` (PR #44, stacked on PR #43): `QAExecutor` + `RetryPolicy` + `FusionWatcher` + `HttpFusionClient` + `ClawdbotWhatsAppNotifier` + 50 new tests. External-watcher route per Brendan's lean. Code lands; deployment gated.
+- **Phase 3 SHIPPED 2026-05-01** in `coywolffuturist/coywolf` PR #1 on `feature/qa-phase3-coywolf-cron`: `services/coywolf-qa/coywolf_qa.py` (Qwen 3.6 via Ollama + Lucid intake auto-file + WhatsApp + atomic state file) + plist + install README + 20 tests. Code lands; `launchctl load` gated on Brendan's smoke test.
+- **Phase 4 IN PROGRESS:** retry threshold is genuinely configurable (Phase 2 wired `NEUMANN_QA_MAX_RETRIES` env > `~/.fusion/config.json max_qa_retries` > default 2; Phase 3 plist exposes the env knob). Failure-pattern dashboard sub-spec at `qa-failure-dashboard.md` (deferred implementation). Lucid viewer skipped — overlaps with in-flight intake-panel spec.
 **Ships across:** `coywolffuturist/neumann` (persona defs + QA Test format) AND `coywolffuturist/coywolf` (fusion-watchdog post-deploy detector + Coywolf-driven async QA).
 
 ---
