@@ -1,6 +1,6 @@
 # Spec: QA Agent at the In Review Column
 
-**Status:** Designed 2026-04-30. Revised 2026-05-01 per Brendan's review feedback. **APPROVED 2026-05-01** — ready for Phase 1 implementation in next session. Implementation deferred from current session due to context window — see `session_handoff_2026-05-01.md` for resumption instructions.
+**Status:** Designed 2026-04-30. Revised 2026-05-01 per Brendan's review feedback. **APPROVED 2026-05-01.** **Phase 1 SHIPPED 2026-05-01** in commit `b0029c3` on branch `feature/router-decomposer` (PR #43): schema + qa persona + qa-system-prompt + Planner system-prompt + In Review column dispatch + `parse_qa_test` parser + 32 new tests. **Phase 2 (pre-merge executor)** and **Phase 3 (Coywolf post-deploy cron)** remain.
 **Ships across:** `coywolffuturist/neumann` (persona defs + QA Test format) AND `coywolffuturist/coywolf` (fusion-watchdog post-deploy detector + Coywolf-driven async QA).
 
 ---
