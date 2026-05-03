@@ -51,8 +51,30 @@ from .qa_state import WatcherRecord, WatcherState
 
 log = logging.getLogger("neumann.qa_watcher")
 
-DEFAULT_FUSION_BASE_URL = "http://127.0.0.1:4040"
 DEFAULT_FUSION_SETTINGS = Path.home() / ".fusion" / "settings.json"
+
+
+def _read_fusion_base_url(settings_path: Path | str = DEFAULT_FUSION_SETTINGS) -> str:
+    """Build the Fusion daemon URL from ~/.fusion/settings.json.
+
+    The daemon's bind address (``daemonHost``/``daemonPort`` in
+    settings.json) is the single source of truth. Following it means a
+    rebind (e.g. from 127.0.0.1 to a Tailscale IP for cross-device
+    access) doesn't require code edits in every client. Falls back to
+    ``http://127.0.0.1:4040`` only when the file is unreadable, which
+    matches Fusion's own default.
+    """
+    try:
+        with open(Path(settings_path)) as f:
+            s = json.load(f)
+        host = s.get("daemonHost") or "127.0.0.1"
+        port = s.get("daemonPort") or 4040
+        return f"http://{host}:{port}"
+    except (OSError, json.JSONDecodeError):
+        return "http://127.0.0.1:4040"
+
+
+DEFAULT_FUSION_BASE_URL = _read_fusion_base_url()
 COMMENT_AUTHOR = "neumann-qa-watcher"
 COMMENT_MAX = 2000
 
