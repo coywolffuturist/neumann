@@ -33,6 +33,7 @@ from .context_resolver import ContextResolver
 from .decomposer import Decomposer
 from .fallback import RoutingFallback
 from .interviewer import Interviewer
+from .task_decomposer import TaskDecomposer
 from .persona_selector import PersonaSelector
 from .planner_protocol import MockPlanner, Planner
 from .registry import PersonaRegistry
@@ -73,6 +74,7 @@ class RouterPipeline:
         planner: Planner | None = None,
         interviewer: Interviewer | None = None,
         decomposer: Decomposer | None = None,
+        task_decomposer: TaskDecomposer | None = None,
         allowed_orgs: tuple[str, ...] = (),
     ) -> None:
         self.shape_classifier = shape_classifier or ShapeClassifier()
@@ -88,6 +90,12 @@ class RouterPipeline:
         # ``decomposer=Decomposer(thresholds={...})`` for custom thresholds,
         # or pass a stub for tests that want decomposition disabled.
         self.decomposer = decomposer or Decomposer()
+        # TaskDecomposer (FN-002): post-Planner stage that splits oversized
+        # PlannedTasks into children + an integration task. Same micro-task
+        # principle as the intent-level Decomposer above, applied one stage
+        # later so it catches the cases the Planner emits as a single bloated
+        # task even after intent-level decomposition.
+        self.task_decomposer = task_decomposer or TaskDecomposer()
         # Interviewer is opt-in. Callers wire one in for entry points where
         # the human is reachable (Slack thread, web chat, terminal stdin).
         # When None, the pipeline behaves like its v1 self: no interview, raw
@@ -186,6 +194,11 @@ class RouterPipeline:
             tasks=tuple(all_tasks),
             confirmed_intent=confirmed,
         )
+
+        # FN-002: post-Planner task-level decomposition. Splits any
+        # PlannedTask that exceeds size thresholds into N child tasks + an
+        # integration task. Pass-through for tasks within thresholds.
+        plan = self.task_decomposer.decompose(plan)
 
         routes = tuple(
             self._route_one(t, env, shape_decision=shape_decision) for t in plan.tasks
