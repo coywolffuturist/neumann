@@ -67,24 +67,41 @@ class FusionTask:
     Mapped from Fusion's daemon API response. Retry count is intentionally
     NOT a field here — Fusion has no ``task.extra``, so retry tracking lives
     in ``WatcherState``, looked up by task id at dispatch time.
+
+    ``project_id`` carries the Fusion project scope the task was found in
+    (``None`` for the unscoped/default store). Mutations MUST be issued
+    against the same scope or the daemon answers ENOENT trying to read the
+    task from the wrong project's ``.fusion/tasks/`` directory.
     """
 
     id: str
     column: str
     prompt_md: str
     worktree_path: str = ""
+    project_id: str | None = None
 
 
 class FusionClient(Protocol):
     """Abstraction over Fusion's daemon API. Tests mock this; production
     uses ``HttpFusionClient``. Each method maps 1:1 to a single HTTP call.
+
+    ``project_id`` on each mutation matches the scope the task was listed
+    from. Pass ``None`` for tasks in the unscoped/default store. Tests
+    that don't care can default to ``None``.
     """
 
     def list_in_review(self) -> list[FusionTask]: ...
-    def move_to_done(self, task_id: str) -> None: ...
-    def move_to_in_progress(self, task_id: str) -> None: ...
-    def pause(self, task_id: str) -> None: ...
-    def add_comment(self, task_id: str, *, text: str, author: str = COMMENT_AUTHOR) -> None: ...
+    def move_to_done(self, task_id: str, *, project_id: str | None = None) -> None: ...
+    def move_to_in_progress(self, task_id: str, *, project_id: str | None = None) -> None: ...
+    def pause(self, task_id: str, *, project_id: str | None = None) -> None: ...
+    def add_comment(
+        self,
+        task_id: str,
+        *,
+        text: str,
+        author: str = COMMENT_AUTHOR,
+        project_id: str | None = None,
+    ) -> None: ...
 
 
 class WhatsAppNotifier(Protocol):
@@ -149,6 +166,7 @@ class HttpFusionClient:
                         column=str(detail.get("column", "in-review")),
                         prompt_md=str(detail.get("prompt", "")),
                         worktree_path=str(detail.get("worktreePath", "")),
+                        project_id=project_id,
                     ))
                 except (KeyError, TypeError, ValueError) as e:
                     log.warning("skipping malformed task payload: %s", e)
@@ -166,22 +184,30 @@ class HttpFusionClient:
             return []
         return [str(p["id"]) for p in raw if isinstance(p, dict) and p.get("id")]
 
-    def move_to_done(self, task_id: str) -> None:
-        self._post(f"/api/tasks/{task_id}/move", {"column": "done"})
+    def move_to_done(self, task_id: str, *, project_id: str | None = None) -> None:
+        self._post(f"/api/tasks/{task_id}/move", {"column": "done"}, project_id=project_id)
 
-    def move_to_in_progress(self, task_id: str) -> None:
-        self._post(f"/api/tasks/{task_id}/move", {"column": "in-progress"})
+    def move_to_in_progress(self, task_id: str, *, project_id: str | None = None) -> None:
+        self._post(f"/api/tasks/{task_id}/move", {"column": "in-progress"}, project_id=project_id)
 
-    def pause(self, task_id: str) -> None:
-        self._post(f"/api/tasks/{task_id}/pause", {})
+    def pause(self, task_id: str, *, project_id: str | None = None) -> None:
+        self._post(f"/api/tasks/{task_id}/pause", {}, project_id=project_id)
 
-    def add_comment(self, task_id: str, *, text: str, author: str = COMMENT_AUTHOR) -> None:
+    def add_comment(
+        self,
+        task_id: str,
+        *,
+        text: str,
+        author: str = COMMENT_AUTHOR,
+        project_id: str | None = None,
+    ) -> None:
         # Fusion enforces 1..2000 chars; truncate defensively so a chatty
         # failure context doesn't 400 us into a no-op.
         truncated = text[:COMMENT_MAX]
         self._post(
             f"/api/tasks/{task_id}/comments",
             {"text": truncated, "author": author},
+            project_id=project_id,
         )
 
     # ── private ───────────────────────────────────────────────
@@ -219,7 +245,10 @@ class HttpFusionClient:
         with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
-    def _post(self, path: str, payload: dict) -> object:
+    def _post(self, path: str, payload: dict, *, project_id: str | None = None) -> object:
+        if project_id:
+            sep = "&" if "?" in path else "?"
+            path = f"{path}{sep}projectId={project_id}"
         req = urllib.request.Request(
             self.base_url + path,
             data=json.dumps(payload).encode("utf-8"),
@@ -244,19 +273,26 @@ class DryRunFusionClient:
     def list_in_review(self) -> list[FusionTask]:
         return self.inner.list_in_review()
 
-    def move_to_done(self, task_id: str) -> None:
-        log.info("[dry-run] would move_to_done task=%s", task_id)
+    def move_to_done(self, task_id: str, *, project_id: str | None = None) -> None:
+        log.info("[dry-run] would move_to_done task=%s project=%s", task_id, project_id)
 
-    def move_to_in_progress(self, task_id: str) -> None:
-        log.info("[dry-run] would move_to_in_progress task=%s", task_id)
+    def move_to_in_progress(self, task_id: str, *, project_id: str | None = None) -> None:
+        log.info("[dry-run] would move_to_in_progress task=%s project=%s", task_id, project_id)
 
-    def pause(self, task_id: str) -> None:
-        log.info("[dry-run] would pause task=%s", task_id)
+    def pause(self, task_id: str, *, project_id: str | None = None) -> None:
+        log.info("[dry-run] would pause task=%s project=%s", task_id, project_id)
 
-    def add_comment(self, task_id: str, *, text: str, author: str = COMMENT_AUTHOR) -> None:
+    def add_comment(
+        self,
+        task_id: str,
+        *,
+        text: str,
+        author: str = COMMENT_AUTHOR,
+        project_id: str | None = None,
+    ) -> None:
         log.info(
-            "[dry-run] would add_comment task=%s author=%s text=%s",
-            task_id, author, text[:200].replace("\n", " | "),
+            "[dry-run] would add_comment task=%s project=%s author=%s text=%s",
+            task_id, project_id, author, text[:200].replace("\n", " | "),
         )
 
 
@@ -418,30 +454,32 @@ class FusionWatcher:
             last_updated=self._clock(),
         )
 
+        pid = ftask.project_id
+
         if action == RetryAction.DONE:
-            self._fusion.move_to_done(ftask.id)
+            self._fusion.move_to_done(ftask.id, project_id=pid)
             # PASS is silent; don't spam comments. SKIP gets a tiny breadcrumb
             # so a human grepping the task log knows the watcher saw it.
             if result.verdict.upper() == "SKIP":
                 self._fusion.add_comment(
-                    ftask.id, text=f"QA SKIP — {result.summary}",
+                    ftask.id, text=f"QA SKIP — {result.summary}", project_id=pid,
                 )
             self._state.record(record)
             return
 
         if action == RetryAction.RETRY:
             self._fusion.add_comment(
-                ftask.id, text=self._format_failure_context(result, attempts),
+                ftask.id, text=self._format_failure_context(result, attempts), project_id=pid,
             )
-            self._fusion.move_to_in_progress(ftask.id)
+            self._fusion.move_to_in_progress(ftask.id, project_id=pid)
             self._state.record(record)
             return
 
         # PAUSE_ESCALATE
         self._fusion.add_comment(
-            ftask.id, text=self._format_pause_reason(result, attempts),
+            ftask.id, text=self._format_pause_reason(result, attempts), project_id=pid,
         )
-        self._fusion.pause(ftask.id)
+        self._fusion.pause(ftask.id, project_id=pid)
         record.paused = True
         self._state.record(record)
         self._notifier.notify(self._format_whatsapp_message(ftask, result, attempts))

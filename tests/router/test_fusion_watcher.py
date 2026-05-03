@@ -40,17 +40,26 @@ class _FakeFusionClient:
         self.queue = []
         return out
 
-    def move_to_done(self, task_id: str) -> None:
-        self.moves.append({"task_id": task_id, "column": "done"})
+    def move_to_done(self, task_id: str, *, project_id: str | None = None) -> None:
+        self.moves.append({"task_id": task_id, "column": "done", "project_id": project_id})
 
-    def move_to_in_progress(self, task_id: str) -> None:
-        self.moves.append({"task_id": task_id, "column": "in-progress"})
+    def move_to_in_progress(self, task_id: str, *, project_id: str | None = None) -> None:
+        self.moves.append({"task_id": task_id, "column": "in-progress", "project_id": project_id})
 
-    def pause(self, task_id: str) -> None:
-        self.pauses.append({"task_id": task_id})
+    def pause(self, task_id: str, *, project_id: str | None = None) -> None:
+        self.pauses.append({"task_id": task_id, "project_id": project_id})
 
-    def add_comment(self, task_id: str, *, text: str, author: str = COMMENT_AUTHOR) -> None:
-        self.comments.append({"task_id": task_id, "text": text, "author": author})
+    def add_comment(
+        self,
+        task_id: str,
+        *,
+        text: str,
+        author: str = COMMENT_AUTHOR,
+        project_id: str | None = None,
+    ) -> None:
+        self.comments.append({
+            "task_id": task_id, "text": text, "author": author, "project_id": project_id,
+        })
 
 
 @dataclass
@@ -136,7 +145,7 @@ def test_pass_moves_task_to_done_silently(tmp_path: Path) -> None:
     )
     stats = watcher.tick()
     assert stats == WatcherStats(seen=1, passed=1)
-    assert fusion.moves == [{"task_id": "T-1", "column": "done"}]
+    assert fusion.moves == [{"task_id": "T-1", "column": "done", "project_id": None}]
     assert not fusion.pauses
     assert not fusion.comments  # PASS is silent; no comment spam
     assert not notifier.messages
@@ -175,7 +184,7 @@ def test_first_fail_comments_then_moves_to_in_progress(tmp_path: Path) -> None:
     )
     stats = watcher.tick()
     assert stats == WatcherStats(seen=1, retried=1)
-    assert fusion.moves == [{"task_id": "T-3", "column": "in-progress"}]
+    assert fusion.moves == [{"task_id": "T-3", "column": "in-progress", "project_id": None}]
     assert len(fusion.comments) == 1
     assert "QA verdict: FAIL" in fusion.comments[0]["text"]
     assert "attempt 1" in fusion.comments[0]["text"]
@@ -184,6 +193,32 @@ def test_first_fail_comments_then_moves_to_in_progress(tmp_path: Path) -> None:
     assert not notifier.messages
     assert state.attempts("T-3") == 1
     assert not state.is_paused("T-3")
+
+
+def test_project_id_is_threaded_through_all_mutations(tmp_path: Path) -> None:
+    """When a task came from a scoped project, every mutation (move,
+    comment, pause) must carry that project_id back through. Otherwise
+    Fusion's daemon answers ENOENT trying to read the task from the wrong
+    project's .fusion/tasks/ directory.
+    """
+    watcher, fusion, _, _, _ = _build_watcher(
+        queue=[FusionTask(
+            id="T-P", column="in-review", prompt_md=_prompt(),
+            project_id="proj_abc123",
+        )],
+        scripts=[_verdict("FAIL", summary="failed")],
+        state_path=tmp_path / "state.json",
+        max_retries=0,  # fail-fast: comment + pause path
+    )
+    watcher.tick()
+    assert fusion.comments == [
+        {
+            "task_id": "T-P", "author": COMMENT_AUTHOR,
+            "text": fusion.comments[0]["text"],
+            "project_id": "proj_abc123",
+        }
+    ]
+    assert fusion.pauses == [{"task_id": "T-P", "project_id": "proj_abc123"}]
 
 
 def test_retry_count_persists_across_ticks(tmp_path: Path) -> None:
@@ -220,7 +255,7 @@ def test_retry_count_persists_across_ticks(tmp_path: Path) -> None:
     )
     s3 = watcher3.tick()
     assert s3.escalated == 1
-    assert fusion3.pauses == [{"task_id": "T-4"}]
+    assert fusion3.pauses == [{"task_id": "T-4", "project_id": None}]
     assert len(notifier3.messages) == 1
     assert "attempts=3" in notifier3.messages[0]
     assert state3.is_paused("T-4")
@@ -265,7 +300,7 @@ def test_planner_bug_pauses_immediately_with_distinct_message(tmp_path: Path) ->
     assert stats.escalated == 1
     assert stats.planner_bugs == 1
     assert reviewer.cursor == 0
-    assert fusion.pauses == [{"task_id": "T-6"}]
+    assert fusion.pauses == [{"task_id": "T-6", "project_id": None}]
     assert len(fusion.comments) == 1
     assert "PLANNER_BUG" in fusion.comments[0]["text"]
     assert "must be fixed by the planner" in fusion.comments[0]["text"]
@@ -347,5 +382,5 @@ def test_max_retries_high_keeps_retrying(tmp_path: Path) -> None:
     )
     stats = watcher.tick()
     assert stats.retried == 1
-    assert fusion.moves[0] == {"task_id": "T-H", "column": "in-progress"}
+    assert fusion.moves[0] == {"task_id": "T-H", "column": "in-progress", "project_id": None}
     assert not fusion.pauses
