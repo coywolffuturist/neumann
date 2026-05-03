@@ -114,30 +114,57 @@ class HttpFusionClient:
     # ── public ───────────────────────────────────────────────
 
     def list_in_review(self) -> list[FusionTask]:
-        slim = self._get("/api/tasks")
-        if not isinstance(slim, list):
-            return []
+        # Fusion scopes /api/tasks per project. Without a ?projectId= the
+        # endpoint returns only the unscoped/default store, so any task
+        # that lives inside a named project (e.g. lucid, neumann) is
+        # invisible. Iterate all known projects + the default scope so
+        # the QA gate covers the whole installation.
         out: list[FusionTask] = []
-        for item in slim:
+        seen_ids: set[str] = set()
+        scopes: list[str | None] = [None] + self._list_project_ids()
+        for project_id in scopes:
             try:
-                if not isinstance(item, dict):
-                    continue
-                if str(item.get("column", "")) != "in-review":
-                    continue
-                task_id = str(item["id"])
-                detail = self._get(f"/api/tasks/{task_id}")
-                if not isinstance(detail, dict):
-                    log.warning("task %s detail not a dict; skipping", task_id)
-                    continue
-                out.append(FusionTask(
-                    id=task_id,
-                    column=str(detail.get("column", "in-review")),
-                    prompt_md=str(detail.get("prompt", "")),
-                    worktree_path=str(detail.get("worktreePath", "")),
-                ))
-            except (KeyError, TypeError, ValueError) as e:
-                log.warning("skipping malformed task payload: %s", e)
+                slim = self._get("/api/tasks", project_id=project_id)
+            except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
+                log.warning("list /api/tasks for project=%s failed: %s", project_id, e)
+                continue
+            if not isinstance(slim, list):
+                continue
+            for item in slim:
+                try:
+                    if not isinstance(item, dict):
+                        continue
+                    if str(item.get("column", "")) != "in-review":
+                        continue
+                    task_id = str(item["id"])
+                    if task_id in seen_ids:
+                        continue
+                    seen_ids.add(task_id)
+                    detail = self._get(f"/api/tasks/{task_id}", project_id=project_id)
+                    if not isinstance(detail, dict):
+                        log.warning("task %s detail not a dict; skipping", task_id)
+                        continue
+                    out.append(FusionTask(
+                        id=task_id,
+                        column=str(detail.get("column", "in-review")),
+                        prompt_md=str(detail.get("prompt", "")),
+                        worktree_path=str(detail.get("worktreePath", "")),
+                    ))
+                except (KeyError, TypeError, ValueError) as e:
+                    log.warning("skipping malformed task payload: %s", e)
         return out
+
+    def _list_project_ids(self) -> list[str]:
+        """Return Fusion project IDs. Empty list on failure (caller still
+        falls back to the unscoped default store)."""
+        try:
+            raw = self._get("/api/projects")
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
+            log.warning("GET /api/projects failed: %s", e)
+            return []
+        if not isinstance(raw, list):
+            return []
+        return [str(p["id"]) for p in raw if isinstance(p, dict) and p.get("id")]
 
     def move_to_done(self, task_id: str) -> None:
         self._post(f"/api/tasks/{task_id}/move", {"column": "done"})
@@ -182,7 +209,10 @@ class HttpFusionClient:
             "Content-Type": "application/json",
         }
 
-    def _get(self, path: str) -> object:
+    def _get(self, path: str, *, project_id: str | None = None) -> object:
+        if project_id:
+            sep = "&" if "?" in path else "?"
+            path = f"{path}{sep}projectId={project_id}"
         req = urllib.request.Request(
             self.base_url + path, method="GET", headers=self._headers(),
         )
@@ -501,8 +531,14 @@ def main(argv: list[str] | None = None) -> int:
     watcher = _build_default_watcher(dry_run=args.dry_run)
 
     if args.once:
-        stats = watcher.tick()
-        log.info("tick stats: %s", stats)
+        # Same posture as --loop: a transient Fusion daemon outage (e.g.
+        # mid-restart) must not produce a non-zero exit + traceback in
+        # err.log. launchd will re-fire on the next StartInterval.
+        try:
+            stats = watcher.tick()
+            log.info("tick stats: %s", stats)
+        except Exception:  # noqa: BLE001 — daemon must not die on transient errors
+            log.exception("tick failed; will retry on next launchd interval")
         return 0
 
     while True:
