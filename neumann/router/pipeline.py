@@ -51,6 +51,18 @@ from .types import (
     ValidationResult,
 )
 from .validator import RoutingValidator
+try:
+    from ._telemetry import invocation
+except Exception:
+    from contextlib import contextmanager
+    @contextmanager
+    def invocation(_h):
+        class _N:
+            def input(self, **kw): pass
+            def output(self, **kw): pass
+            def outcome(self, *a, **kw): pass
+            def skill(self, *a, **kw): pass
+        yield _N()
 
 
 @dataclass
@@ -127,88 +139,92 @@ class RouterPipeline:
         that don't need the heavier pipeline.
         """
         env = env or {}
-        shape_decision = self.shape_classifier.classify(prompt)
+        with invocation('neumann') as _t:
+            _t.input(prompt_len=len(prompt), has_interviewer=self.interviewer is not None)
 
-        # Fast path: SINGLE_TASK shape + no interviewer = v1 direct route.
-        # Preserves behavior for callers that intentionally skip interview.
-        if shape_decision.shape == Shape.SINGLE_TASK and self.interviewer is None:
-            task = PlannedTask.from_prompt(prompt)
-            trace = self._route_one(task, env, shape_decision=shape_decision)
+            t0 = time.perf_counter()
+            shape_decision = self.shape_classifier.classify(prompt)
+            _t.skill('shape_classifier', 'success', int((time.perf_counter() - t0) * 1000))
+
+            # Fast path: SINGLE_TASK shape + no interviewer = v1 direct route.
+            if shape_decision.shape == Shape.SINGLE_TASK and self.interviewer is None:
+                task = PlannedTask.from_prompt(prompt)
+                trace = self._route_one(task, env, shape_decision=shape_decision)
+                _t.output(path='fast', shape=str(shape_decision.shape), routes=1)
+                return PipelineResult(
+                    shape_decision=shape_decision,
+                    confirmed_intent=None,
+                    plan=None,
+                    routes=(trace,),
+                )
+
+            # Full path: LLM translation (or synthesize) → Decompose →
+            # Plan-per-intent → routes.
+            if self.interviewer is not None:
+                t0 = time.perf_counter()
+                confirmed = self.interviewer.interview(prompt, env=env)
+                _t.skill('interviewer', 'success', int((time.perf_counter() - t0) * 1000))
+            else:
+                confirmed = ConfirmedIntent(
+                    raw_prompt=prompt,
+                    confirmed_intent=prompt,
+                    target_repo=env.get("target_repo", ""),
+                )
+            env = {
+                **env,
+                "target_repo": confirmed.target_repo,
+                "confirmed_intent": confirmed,
+            }
+
+            t0 = time.perf_counter()
+            sub_intents = self.decomposer.decompose(confirmed)
+            _t.skill('decomposer', 'success', int((time.perf_counter() - t0) * 1000))
+
+            all_tasks: list[PlannedTask] = []
+            sub_plans: list[Plan] = []
+            for sub_intent in sub_intents:
+                planner_context = {**env, "confirmed_intent": sub_intent}
+                t0 = time.perf_counter()
+                sub_plan = self.planner.plan(
+                    sub_intent.confirmed_intent, context=planner_context
+                )
+                _t.skill('planner', 'success', int((time.perf_counter() - t0) * 1000))
+                sub_plans.append(sub_plan)
+                all_tasks.extend(sub_plan.tasks)
+
+            if len(sub_plans) == 1 and sub_plans[0].mission_title:
+                mission_title = sub_plans[0].mission_title
+            else:
+                mission_title = confirmed.confirmed_intent[:120] or "Untitled"
+
+            plan = Plan(
+                mission_title=mission_title,
+                summary=confirmed.confirmed_intent,
+                assumptions=(),
+                tasks=tuple(all_tasks),
+                confirmed_intent=confirmed,
+            )
+
+            t0 = time.perf_counter()
+            plan = self.task_decomposer.decompose(plan)
+            _t.skill('task_decomposer', 'success', int((time.perf_counter() - t0) * 1000))
+
+            routes = tuple(
+                self._route_one(t, env, shape_decision=shape_decision) for t in plan.tasks
+            )
+            _t.output(
+                path='full',
+                shape=str(shape_decision.shape),
+                sub_intents=len(sub_intents),
+                tasks=len(plan.tasks),
+                routes=len(routes),
+            )
             return PipelineResult(
                 shape_decision=shape_decision,
-                confirmed_intent=None,
-                plan=None,
-                routes=(trace,),
+                confirmed_intent=confirmed,
+                plan=plan,
+                routes=routes,
             )
-
-        # Full path: LLM translation (or synthesize) → Decompose →
-        # Plan-per-intent → routes.
-        if self.interviewer is not None:
-            confirmed = self.interviewer.interview(prompt, env=env)
-        else:
-            # No interviewer wired but mission-shaped prompt — synthesize a
-            # passthrough ConfirmedIntent so the rest of the pipeline has
-            # uniform input.
-            confirmed = ConfirmedIntent(
-                raw_prompt=prompt,
-                confirmed_intent=prompt,
-                target_repo=env.get("target_repo", ""),
-            )
-        env = {
-            **env,
-            "target_repo": confirmed.target_repo,
-            "confirmed_intent": confirmed,
-        }
-
-        # Stage: Decompose intent into sub-intents.
-        sub_intents = self.decomposer.decompose(confirmed)
-
-        # Stage: Planner runs once per sub-intent. Each invocation sees a
-        # single focused area — the Planner's output stays uniformly tight.
-        all_tasks: list[PlannedTask] = []
-        sub_plans: list[Plan] = []
-        for sub_intent in sub_intents:
-            planner_context = {**env, "confirmed_intent": sub_intent}
-            sub_plan = self.planner.plan(
-                sub_intent.confirmed_intent, context=planner_context
-            )
-            sub_plans.append(sub_plan)
-            all_tasks.extend(sub_plan.tasks)
-
-        # Aggregate per-sub-intent plans into one Plan stamped with the
-        # original (pre-decomposition) ConfirmedIntent.
-        # mission_title: when no decomposition happened (1 sub-intent), use
-        # the Planner's title — it's authoritative for that single scope.
-        # When decomposition produced multiple sub-intents, the Planner-side
-        # titles are necessarily narrower than the overall mission, so we
-        # fall back to the user-confirmed intent as the umbrella title.
-        if len(sub_plans) == 1 and sub_plans[0].mission_title:
-            mission_title = sub_plans[0].mission_title
-        else:
-            mission_title = confirmed.confirmed_intent[:120] or "Untitled"
-
-        plan = Plan(
-            mission_title=mission_title,
-            summary=confirmed.confirmed_intent,
-            assumptions=(),
-            tasks=tuple(all_tasks),
-            confirmed_intent=confirmed,
-        )
-
-        # FN-002: post-Planner task-level decomposition. Splits any
-        # PlannedTask that exceeds size thresholds into N child tasks + an
-        # integration task. Pass-through for tasks within thresholds.
-        plan = self.task_decomposer.decompose(plan)
-
-        routes = tuple(
-            self._route_one(t, env, shape_decision=shape_decision) for t in plan.tasks
-        )
-        return PipelineResult(
-            shape_decision=shape_decision,
-            confirmed_intent=confirmed,
-            plan=plan,
-            routes=routes,
-        )
 
     def route(self, task: PlannedTask, env: dict[str, Any] | None = None) -> RoutingTrace:
         """Route a single PlannedTask, skipping shape classification + planning."""
