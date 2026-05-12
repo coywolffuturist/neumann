@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>neumann — flows</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; max-width: 980px; margin: 0 auto; padding: 28px 36px 80px; color: #1c1c1f; background: #fafafa; line-height: 1.5; }
+h1 { font-size: 28px; margin: 0 0 6px; }
+h2 { font-size: 17px; margin: 28px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #d4d4d8; color: #4f46e5; }
+.hero { padding: 14px 16px; background: #f4f4f5; border-left: 3px solid #4f46e5; margin-bottom: 18px; }
+.purpose { font-size: 14px; color: #3f3f46; }
+.gen { font-size: 11px; color: #71717a; font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 5px 8px; vertical-align: top; border-bottom: 1px solid #e4e4e7; }
+th { width: 28%; color: #52525b; font-weight: 600; }
+ul { padding-left: 20px; margin: 6px 0; }
+li { margin-bottom: 8px; }
+li ul { margin-top: 4px; }
+pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; background: #f4f4f5; padding: 6px 8px; border-radius: 3px; overflow-x: auto; margin: 4px 0; }
+code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; background: #f4f4f5; padding: 1px 4px; border-radius: 2px; }
+strong { color: #18181b; }
+section { margin-bottom: 22px; }
+</style>
+</head>
+<body>
+<section class="hero"><h1>neumann — flows</h1><p class="purpose">Python router pipeline — THE top-of-funnel for all prompts. Owns interview + plan + decompose + route as one engine. Lucid shells out to `python -m neumann.router.cli` for mission routing. PR #48 (2026-05-03) shipped the Decomposer-before-Planner ordering.</p><p class="gen">Generated 2026-05-13 · This file is read-only documentation; <code>flows.json</code> is the canonical machine-readable form.</p></section><section><h2>Pipeline Ordering</h2><p>Prompt → ShapeClassifier (advisory) → Interviewer (opt-in) → ConfirmedIntent → Decomposer (intent → N sub-intents) → Planner (1+ tasks per sub-intent) → TaskDecomposer (task-level split for oversized) → per-task routing (TaskClassifier → ContextResolver → PersonaSelector → fallback → validate) → RoutingTrace[] → Fusion Todo column</p></section><section><h2>Entry Points</h2><table><tr><th>cli</th><td>fnr (python -m neumann.router.cli)</td></tr><tr><th>subcommands</th><td><pre>[
+  {
+    &quot;name&quot;: &quot;task&quot;,
+    &quot;purpose&quot;: &quot;Route a single-task prompt (forced SINGLE_TASK path, optionally with interview); outputs PersonaDecision for 1 task&quot;
+  },
+  {
+    &quot;name&quot;: &quot;mission&quot;,
+    &quot;purpose&quot;: &quot;Full pipeline: shape \u2192 interview \u2192 decompose \u2192 plan \u2192 route; outputs Plan + PersonaDecisions for all tasks&quot;
+  },
+  {
+    &quot;name&quot;: &quot;classify-shape&quot;,
+    &quot;purpose&quot;: &quot;Advisory shape classification only; outputs ShapeDecision&quot;
+  }
+]</pre></td></tr><tr><th>global_flags</th><td><pre>[
+  &quot;--json (machine-readable output)&quot;,
+  &quot;--interview (enable interactive interview)&quot;,
+  &quot;--allowed-org &lt;org&gt; (repeatable; gates target_repo)&quot;
+]</pre></td></tr></table></section><section><h2>Core Types</h2><table><tr><th>Shape</th><td>enum SINGLE_TASK | MISSION</td></tr><tr><th>TaskType</th><td>enum 14 values (VERIFICATION, SECURITY, TECH_ARCHITECTURE, STRATEGY, FINANCE, MARKETING, FRONTEND, BACKEND, FULLSTACK, PERFORMANCE, DOCUMENTATION, BUGFIX, IMPLEMENTATION, UNKNOWN)</td></tr><tr><th>PlannedTask</th><td>frozen dataclass: title, description, type_hints, target_files, acceptance_criteria, depends_on, extra:dict</td></tr><tr><th>ConfirmedIntent</th><td>frozen dataclass: raw_prompt, confirmed_intent (human-approved restatement), target_repo (owner/name), success_criteria, constraints, out_of_scope, human_approver_id, human_approved, transcript:InterviewExchange[]</td></tr><tr><th>Plan</th><td>frozen dataclass: mission_title, summary, assumptions, tasks:PlannedTask[], confirmed_intent</td></tr><tr><th>RoutingContext</th><td>frozen dataclass: project_type, available_personas, persona_load, column (Fusion lifecycle), extra</td></tr><tr><th>ShapeDecision</th><td>frozen dataclass: shape, matched_rule_priority, matched_rule_note, sentence_count</td></tr><tr><th>PersonaDecision</th><td>frozen dataclass: persona, task_type, matched_rule_priority, dispatch_priority, fallback_used, trace</td></tr><tr><th>RoutingTrace</th><td>frozen dataclass: input_hash, shape_decision, task, context, persona_decision, duration_ms</td></tr></table></section><section><h2>Modules</h2><ul>
+<li><strong>router/pipeline.py</strong><table><tr><th>purpose</th><td>Orchestrates full intake pipeline (shape → interview → decompose → plan → route)</td></tr></table></li>
+<li><strong>router/cli.py</strong><table><tr><th>purpose</th><td>fnr CLI entry point with argparse subcommands</td></tr></table></li>
+<li><strong>router/types.py</strong><table><tr><th>purpose</th><td>Core domain model (10+ dataclasses); pure data</td></tr></table></li>
+<li><strong>router/shape_classifier.py</strong><table><tr><th>purpose</th><td>Regex-based SINGLE_TASK vs MISSION classification</td></tr></table></li>
+<li><strong>router/interviewer.py</strong><table><tr><th>purpose</th><td>Interviewer protocol + Mock/CLI/Chat/Slack/Lucid/Web implementations + validate_intent() deterministic gate</td></tr></table></li>
+<li><strong>router/decomposer.py</strong><table><tr><th>purpose</th><td>Intent-level decomposer: split oversized ConfirmedIntent into N sub-intents BEFORE Planner</td></tr></table></li>
+<li><strong>router/task_decomposer.py</strong><table><tr><th>purpose</th><td>Task-level decomposer (FN-002): split oversized PlannedTask AFTER Planner</td></tr></table></li>
+<li><strong>router/planner_protocol.py</strong><table><tr><th>purpose</th><td>Planner protocol + MockPlanner</td></tr></table></li>
+<li><strong>router/task_classifier.py</strong><table><tr><th>purpose</th><td>Regex-based PlannedTask → TaskType classification</td></tr></table></li>
+<li><strong>router/context_resolver.py</strong><table><tr><th>purpose</th><td>Derive RoutingContext from env + file-heuristics (frontend/backend/test extension matchers)</td></tr></table></li>
+<li><strong>router/persona_selector.py</strong><table><tr><th>purpose</th><td>Dispatch-table lookup (task_type + context → persona); honors available_personas filter + FALLBACK_SENTINEL</td></tr></table></li>
+<li><strong>router/validator.py</strong><table><tr><th>purpose</th><td>Post-decision validation</td></tr></table></li>
+<li><strong>router/fallback.py</strong><table><tr><th>purpose</th><td>Resolve FALLBACK_SENTINEL → real persona at runtime</td></tr></table></li>
+<li><strong>router/registry.py</strong><table><tr><th>purpose</th><td>Load Fusion 9 preset personas + custom JSON definitions</td></tr></table></li>
+<li><strong>router/qa_executor.py</strong><table><tr><th>purpose</th><td>Phase 2: run one QA Test attempt against worktree; parse reviewer verdict</td></tr></table></li>
+<li><strong>router/qa_test.py</strong><table><tr><th>purpose</th><td>Parse ## QA Test block from PROMPT.md</td></tr></table></li>
+<li><strong>router/qa_state.py</strong><table><tr><th>purpose</th><td>WatcherState persistent retry-count tracking (idempotent)</td></tr></table></li>
+<li><strong>router/qa_retry.py</strong><table><tr><th>purpose</th><td>RetryPolicy: decide retry vs escalate based on verdict + attempt count</td></tr></table></li>
+<li><strong>router/fusion_watcher.py</strong><table><tr><th>purpose</th><td>External QA gate daemon: polls Fusion In Review, executes QA, dispatches verdicts (PASS|FAIL|SKIP|PLANNER_BUG)</td></tr></table></li>
+<li><strong>router/_telemetry.py</strong><table><tr><th>purpose</th><td>invocation() context manager → JSONL logger for harness invocations</td></tr></table></li>
+</ul></section><section><h2>Flows</h2><ul>
+<li><strong>Full mission pipeline</strong><table><tr><th>trigger</th><td>fnr mission &quot;&lt;prompt&gt;&quot; --json</td></tr><tr><th>steps</th><td><pre>[
+  &quot;ShapeClassifier \u2014 advisory: single-task vs mission via regex rules&quot;,
+  &quot;Interviewer (opt-in) \u2014 LLM clarification loop \u2192 ConfirmedIntent; validate_intent() deterministic gate (target_repo regex, success_criteria non-empty, human_approved=True)&quot;,
+  &quot;Decomposer \u2014 if intent exceeds thresholds (max_lines_estimate=500, max_files_changed=3, max_distinct_outputs=2), split into N sub-intents + integration intent&quot;,
+  &quot;Planner \u2014 runs ONCE PER SUB-INTENT; emits 1+ PlannedTasks each (LLM-backed or MockPlanner)&quot;,
+  &quot;TaskDecomposer \u2014 post-Planner: split oversized PlannedTasks into N child tasks + integration task&quot;,
+  &quot;Per-task routing: TaskClassifier \u2192 ContextResolver \u2192 PersonaSelector \u2192 fallback \u2192 validator&quot;,
+  &quot;Output: PipelineResult with shape, confirmed_intent, plan, routes[]&quot;
+]</pre></td></tr><tr><th>outcome</th><td>RoutingTrace[] ready to emit into Fusion Todo column</td></tr></table></li>
+<li><strong>Fast path (single-task, no interviewer)</strong><table><tr><th>trigger</th><td>fnr task &quot;&lt;prompt&gt;&quot; --json</td></tr><tr><th>steps</th><td><pre>[
+  &quot;ShapeClassifier \u2192 SINGLE_TASK&quot;,
+  &quot;No interviewer wired \u2192 synthesize ConfirmedIntent from prompt&quot;,
+  &quot;Skip decompose + plan; route raw prompt directly as PlannedTask&quot;
+]</pre></td></tr><tr><th>outcome</th><td>Single PersonaDecision; preserved for tests and trivial prompts</td></tr></table></li>
+<li><strong>Phase 2 QA Watcher (FusionWatcher daemon)</strong><table><tr><th>trigger</th><td>External cron polls Fusion&#x27;s In Review column every 30s</td></tr><tr><th>steps</th><td><pre>[
+  &quot;GET /api/tasks (filter column==in-review)&quot;,
+  &quot;For each task: GET /api/tasks/{id} \u2192 PROMPT.md body&quot;,
+  &quot;QAExecutor.execute(QATask) \u2192 QAResult (verdict: PASS|FAIL|SKIP|PLANNER_BUG)&quot;,
+  &quot;RetryPolicy.decide(verdict, attempt) \u2192 RetryAction (DONE|RETRY|PAUSE_ESCALATE)&quot;,
+  &quot;Dispatch: DONE+PASS \u2192 move to done silently. DONE+SKIP \u2192 done + breadcrumb. RETRY \u2192 comment + move back to in-progress. PAUSE_ESCALATE \u2192 comment + /pause + WhatsApp notify via clawdbot&quot;
+]</pre></td></tr><tr><th>outcome</th><td>QA gate is independent of Coder; idempotent via WatcherState</td></tr></table></li>
+</ul></section><section><h2>Qa Agent Phases</h2><ul>
+<li><strong>Task entry</strong><table><tr><th>what</th><td>Planner embeds `## QA Test` section in PROMPT.md (schema: type, reviewer_tier, steps, expected_failures, pass_criterion, browser_tool). Parsed by parse_qa_test().</td></tr></table></li>
+<li><strong>Pre-merge watcher</strong><table><tr><th>what</th><td>fusion_watcher.py polls In Review; QAExecutor runs reviewer (pi-claude-cli Opus 4.7); RetryPolicy decides dispose</td></tr></table></li>
+<li><strong>Post-deploy cron (coywolf-qa)</strong><table><tr><th>what</th><td>Daemon monitors deployed agents in production; escalates regressions to Brendan</td></tr></table></li>
+</ul></section><section><h2>Telemetry</h2><table><tr><th>path</th><td>~/.coywolf/telemetry/{harness}.jsonl</td></tr><tr><th>shape</th><td>{ ts, harness, invocation_id, outcome, latency_ms, input:{}, output:{}, error, skill_invocations:[{name, outcome, latency_ms}] }</td></tr><tr><th>pattern</th><td>with invocation(&#x27;neumann&#x27;) as t: t.input(...); t.skill(&#x27;shape_classifier&#x27;, &#x27;success&#x27;, duration_ms); t.output(...)</td></tr></table></section><section><h2>Invariants</h2><ul>
+<li>Interviewer is opt-in (CLI/Slack/Lucid/web wire one; offline/tests leave None → skip interview)</li>
+<li>Fast path preserved: SINGLE_TASK + no interviewer → bypass decompose/plan</li>
+<li>Decompose BEFORE Planner (keeps Planner input small; Brendan&#x27;s design)</li>
+<li>Task-decompose AFTER Planner (catches oversized tasks Planner emits; FN-002)</li>
+<li>Validation gate deterministic (no LLM; schema rules; max 8 rounds)</li>
+<li>ConfirmedIntent approval explicit (human_approved=True before Planner runs)</li>
+<li>QA watcher idempotent (WatcherState outside Fusion; survives restarts)</li>
+<li>Personas extensible (registry loads presets + custom JSON at runtime)</li>
+<li>FALLBACK_SENTINEL is a dispatch signal; fallback.py resolves at runtime</li>
+</ul></section>
+</body>
+</html>

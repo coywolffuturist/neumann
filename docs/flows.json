@@ -1,0 +1,113 @@
+{
+  "$schema": "https://coywolf.dev/schemas/flows-v1.json",
+  "repo": "neumann",
+  "purpose": "Python router pipeline — THE top-of-funnel for all prompts. Owns interview + plan + decompose + route as one engine. Lucid shells out to `python -m neumann.router.cli` for mission routing. PR #48 (2026-05-03) shipped the Decomposer-before-Planner ordering.",
+  "generated_at": "2026-05-13",
+  "generated_by": "Coywolf intel-synthesis proposal #01",
+  "pipeline_ordering": "Prompt → ShapeClassifier (advisory) → Interviewer (opt-in) → ConfirmedIntent → Decomposer (intent → N sub-intents) → Planner (1+ tasks per sub-intent) → TaskDecomposer (task-level split for oversized) → per-task routing (TaskClassifier → ContextResolver → PersonaSelector → fallback → validate) → RoutingTrace[] → Fusion Todo column",
+  "entry_points": {
+    "cli": "fnr (python -m neumann.router.cli)",
+    "subcommands": [
+      { "name": "task", "purpose": "Route a single-task prompt (forced SINGLE_TASK path, optionally with interview); outputs PersonaDecision for 1 task" },
+      { "name": "mission", "purpose": "Full pipeline: shape → interview → decompose → plan → route; outputs Plan + PersonaDecisions for all tasks" },
+      { "name": "classify-shape", "purpose": "Advisory shape classification only; outputs ShapeDecision" }
+    ],
+    "global_flags": [
+      "--json (machine-readable output)",
+      "--interview (enable interactive interview)",
+      "--allowed-org <org> (repeatable; gates target_repo)"
+    ]
+  },
+  "core_types": {
+    "Shape": "enum SINGLE_TASK | MISSION",
+    "TaskType": "enum 14 values (VERIFICATION, SECURITY, TECH_ARCHITECTURE, STRATEGY, FINANCE, MARKETING, FRONTEND, BACKEND, FULLSTACK, PERFORMANCE, DOCUMENTATION, BUGFIX, IMPLEMENTATION, UNKNOWN)",
+    "PlannedTask": "frozen dataclass: title, description, type_hints, target_files, acceptance_criteria, depends_on, extra:dict",
+    "ConfirmedIntent": "frozen dataclass: raw_prompt, confirmed_intent (human-approved restatement), target_repo (owner/name), success_criteria, constraints, out_of_scope, human_approver_id, human_approved, transcript:InterviewExchange[]",
+    "Plan": "frozen dataclass: mission_title, summary, assumptions, tasks:PlannedTask[], confirmed_intent",
+    "RoutingContext": "frozen dataclass: project_type, available_personas, persona_load, column (Fusion lifecycle), extra",
+    "ShapeDecision": "frozen dataclass: shape, matched_rule_priority, matched_rule_note, sentence_count",
+    "PersonaDecision": "frozen dataclass: persona, task_type, matched_rule_priority, dispatch_priority, fallback_used, trace",
+    "RoutingTrace": "frozen dataclass: input_hash, shape_decision, task, context, persona_decision, duration_ms"
+  },
+  "modules": [
+    { "file": "router/pipeline.py", "purpose": "Orchestrates full intake pipeline (shape → interview → decompose → plan → route)" },
+    { "file": "router/cli.py", "purpose": "fnr CLI entry point with argparse subcommands" },
+    { "file": "router/types.py", "purpose": "Core domain model (10+ dataclasses); pure data" },
+    { "file": "router/shape_classifier.py", "purpose": "Regex-based SINGLE_TASK vs MISSION classification" },
+    { "file": "router/interviewer.py", "purpose": "Interviewer protocol + Mock/CLI/Chat/Slack/Lucid/Web implementations + validate_intent() deterministic gate" },
+    { "file": "router/decomposer.py", "purpose": "Intent-level decomposer: split oversized ConfirmedIntent into N sub-intents BEFORE Planner" },
+    { "file": "router/task_decomposer.py", "purpose": "Task-level decomposer (FN-002): split oversized PlannedTask AFTER Planner" },
+    { "file": "router/planner_protocol.py", "purpose": "Planner protocol + MockPlanner" },
+    { "file": "router/task_classifier.py", "purpose": "Regex-based PlannedTask → TaskType classification" },
+    { "file": "router/context_resolver.py", "purpose": "Derive RoutingContext from env + file-heuristics (frontend/backend/test extension matchers)" },
+    { "file": "router/persona_selector.py", "purpose": "Dispatch-table lookup (task_type + context → persona); honors available_personas filter + FALLBACK_SENTINEL" },
+    { "file": "router/validator.py", "purpose": "Post-decision validation" },
+    { "file": "router/fallback.py", "purpose": "Resolve FALLBACK_SENTINEL → real persona at runtime" },
+    { "file": "router/registry.py", "purpose": "Load Fusion 9 preset personas + custom JSON definitions" },
+    { "file": "router/qa_executor.py", "purpose": "Phase 2: run one QA Test attempt against worktree; parse reviewer verdict" },
+    { "file": "router/qa_test.py", "purpose": "Parse ## QA Test block from PROMPT.md" },
+    { "file": "router/qa_state.py", "purpose": "WatcherState persistent retry-count tracking (idempotent)" },
+    { "file": "router/qa_retry.py", "purpose": "RetryPolicy: decide retry vs escalate based on verdict + attempt count" },
+    { "file": "router/fusion_watcher.py", "purpose": "External QA gate daemon: polls Fusion In Review, executes QA, dispatches verdicts (PASS|FAIL|SKIP|PLANNER_BUG)" },
+    { "file": "router/_telemetry.py", "purpose": "invocation() context manager → JSONL logger for harness invocations" }
+  ],
+  "flows": [
+    {
+      "name": "Full mission pipeline",
+      "trigger": "fnr mission \"<prompt>\" --json",
+      "steps": [
+        "ShapeClassifier — advisory: single-task vs mission via regex rules",
+        "Interviewer (opt-in) — LLM clarification loop → ConfirmedIntent; validate_intent() deterministic gate (target_repo regex, success_criteria non-empty, human_approved=True)",
+        "Decomposer — if intent exceeds thresholds (max_lines_estimate=500, max_files_changed=3, max_distinct_outputs=2), split into N sub-intents + integration intent",
+        "Planner — runs ONCE PER SUB-INTENT; emits 1+ PlannedTasks each (LLM-backed or MockPlanner)",
+        "TaskDecomposer — post-Planner: split oversized PlannedTasks into N child tasks + integration task",
+        "Per-task routing: TaskClassifier → ContextResolver → PersonaSelector → fallback → validator",
+        "Output: PipelineResult with shape, confirmed_intent, plan, routes[]"
+      ],
+      "outcome": "RoutingTrace[] ready to emit into Fusion Todo column"
+    },
+    {
+      "name": "Fast path (single-task, no interviewer)",
+      "trigger": "fnr task \"<prompt>\" --json",
+      "steps": [
+        "ShapeClassifier → SINGLE_TASK",
+        "No interviewer wired → synthesize ConfirmedIntent from prompt",
+        "Skip decompose + plan; route raw prompt directly as PlannedTask"
+      ],
+      "outcome": "Single PersonaDecision; preserved for tests and trivial prompts"
+    },
+    {
+      "name": "Phase 2 QA Watcher (FusionWatcher daemon)",
+      "trigger": "External cron polls Fusion's In Review column every 30s",
+      "steps": [
+        "GET /api/tasks (filter column==in-review)",
+        "For each task: GET /api/tasks/{id} → PROMPT.md body",
+        "QAExecutor.execute(QATask) → QAResult (verdict: PASS|FAIL|SKIP|PLANNER_BUG)",
+        "RetryPolicy.decide(verdict, attempt) → RetryAction (DONE|RETRY|PAUSE_ESCALATE)",
+        "Dispatch: DONE+PASS → move to done silently. DONE+SKIP → done + breadcrumb. RETRY → comment + move back to in-progress. PAUSE_ESCALATE → comment + /pause + WhatsApp notify via clawdbot"
+      ],
+      "outcome": "QA gate is independent of Coder; idempotent via WatcherState"
+    }
+  ],
+  "qa_agent_phases": [
+    { "phase": 1, "name": "Task entry", "what": "Planner embeds `## QA Test` section in PROMPT.md (schema: type, reviewer_tier, steps, expected_failures, pass_criterion, browser_tool). Parsed by parse_qa_test()." },
+    { "phase": 2, "name": "Pre-merge watcher", "what": "fusion_watcher.py polls In Review; QAExecutor runs reviewer (pi-claude-cli Opus 4.7); RetryPolicy decides dispose" },
+    { "phase": 3, "name": "Post-deploy cron (coywolf-qa)", "what": "Daemon monitors deployed agents in production; escalates regressions to Brendan" }
+  ],
+  "telemetry": {
+    "path": "~/.coywolf/telemetry/{harness}.jsonl",
+    "shape": "{ ts, harness, invocation_id, outcome, latency_ms, input:{}, output:{}, error, skill_invocations:[{name, outcome, latency_ms}] }",
+    "pattern": "with invocation('neumann') as t: t.input(...); t.skill('shape_classifier', 'success', duration_ms); t.output(...)"
+  },
+  "invariants": [
+    "Interviewer is opt-in (CLI/Slack/Lucid/web wire one; offline/tests leave None → skip interview)",
+    "Fast path preserved: SINGLE_TASK + no interviewer → bypass decompose/plan",
+    "Decompose BEFORE Planner (keeps Planner input small; Brendan's design)",
+    "Task-decompose AFTER Planner (catches oversized tasks Planner emits; FN-002)",
+    "Validation gate deterministic (no LLM; schema rules; max 8 rounds)",
+    "ConfirmedIntent approval explicit (human_approved=True before Planner runs)",
+    "QA watcher idempotent (WatcherState outside Fusion; survives restarts)",
+    "Personas extensible (registry loads presets + custom JSON at runtime)",
+    "FALLBACK_SENTINEL is a dispatch signal; fallback.py resolves at runtime"
+  ]
+}
