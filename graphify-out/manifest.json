@@ -1,0 +1,290 @@
+{
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/validator.py": {
+    "mtime": 1777571528.290961,
+    "hash": "2b4e08aa5cbf810d070dc63a54b7c4f2"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/streaming_async.py": {
+    "mtime": 1777571528.2907884,
+    "hash": "21dd2d76fa62e515b63945e488922986"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/classifier.py": {
+    "mtime": 1777571528.2890823,
+    "hash": "7304031bfeed241d7ed0a8c66e75bb4a"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/registry.py": {
+    "mtime": 1777571528.2903285,
+    "hash": "a514e29957d1f9e542533c08cc90e32c"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/selector.py": {
+    "mtime": 1777571528.290449,
+    "hash": "17e6d769d7139820e1ee00e3669a8b20"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/__init__.py": {
+    "mtime": 1777571528.2889605,
+    "hash": "85b6e0f849dd6315ed59146350a7351b"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/types.py": {
+    "mtime": 1777571528.290873,
+    "hash": "2bbf851425ab9cf6388f42329ad9ca6c"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/context.py": {
+    "mtime": 1777571528.289193,
+    "hash": "5370dc505fdfc88651189ffbe99fb7f1"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/pipeline.py": {
+    "mtime": 1777571528.290231,
+    "hash": "4a80da412c5a7b42828b1d3f305c861d"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/streaming.py": {
+    "mtime": 1777571528.2906244,
+    "hash": "ab9c9f07715d8b4d4ab50367ebf08eb9"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/formatters/error.py": {
+    "mtime": 1777571528.2897763,
+    "hash": "75d01c6202f65055dd0d94008e203dcc"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/formatters/agent_state.py": {
+    "mtime": 1777571528.2894611,
+    "hash": "0958d754f1e193e0e7d50acc12986ad2"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/formatters/code.py": {
+    "mtime": 1777571528.28956,
+    "hash": "59b21dd586868b638d244238e3642706"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/formatters/__init__.py": {
+    "mtime": 1777571528.289356,
+    "hash": "e28a6acb8881f44aa2f717eab4021587"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/formatters/markdown.py": {
+    "mtime": 1777571528.2899966,
+    "hash": "18edff134df8bfb109c8e6a76f7ad594"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/formatters/diff.py": {
+    "mtime": 1777571528.2896552,
+    "hash": "0a3b6601b81c2379cfa4000f4690640f"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/formatters/tool_call.py": {
+    "mtime": 1777571528.2900968,
+    "hash": "110d6f94ee54ff1f15239e170ca5b12d"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/formatters/fallback.py": {
+    "mtime": 1777571528.2898788,
+    "hash": "b550c412ddfcbb462fb3b19174e1f292"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/validator.py": {
+    "mtime": 1777669298.9452376,
+    "hash": "8e7597d0804f2baf4b305bade3279c6d"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/qa_test.py": {
+    "mtime": 1777669298.9439743,
+    "hash": "8afa1342e8942080c7f66a4d2ae9dbab"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/qa_state.py": {
+    "mtime": 1777669298.943684,
+    "hash": "f855b19b165f960e7ca42ec9038e5343"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/task_classifier.py": {
+    "mtime": 1777669298.9449067,
+    "hash": "0c29d1b8d8fa8349f6f5668f1fd2e0c5"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/_telemetry.py": {
+    "mtime": 1778003373.4033194,
+    "hash": "86bbff0d745f34759b539a7c648267b1"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/persona_selector.py": {
+    "mtime": 1777669298.9414663,
+    "hash": "e71c15005ec7f608512516fe341a8f6b"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/registry.py": {
+    "mtime": 1777669298.9440496,
+    "hash": "25770e479f535a3137612db82b0f44bf"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/__init__.py": {
+    "mtime": 1777669298.9400332,
+    "hash": "c68afda254cb8a1ef150517b7e5e600b"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/interviewer.py": {
+    "mtime": 1777669298.9411857,
+    "hash": "88858f5a8efc33c741609871507fd83e"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/types.py": {
+    "mtime": 1777669298.9451687,
+    "hash": "fbf24d0895ada53be38f5ce7466ece8d"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/qa_retry.py": {
+    "mtime": 1777669298.9434118,
+    "hash": "147bc0002f5f632fea3fad3545288fff"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/cli.py": {
+    "mtime": 1777669298.9401197,
+    "hash": "f70a79b26fbe22a3ef72fe2b769164c3"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/pipeline.py": {
+    "mtime": 1778003373.4036593,
+    "hash": "574f8d5a59ca86f95807085d9a66bd1d"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/planner_protocol.py": {
+    "mtime": 1777669298.942906,
+    "hash": "81e31f280d23a31712ebb36974c3ba91"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/context_resolver.py": {
+    "mtime": 1777669298.9401965,
+    "hash": "038430fc3e98fc3144a8fe496a7122fd"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/decomposer.py": {
+    "mtime": 1777669298.9405136,
+    "hash": "09c0c0e6dc5bab882c2906621abd9a81"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/fusion_watcher.py": {
+    "mtime": 1777843336.7274282,
+    "hash": "9175b68eb3938b23eae5423dfab55d91"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/task_decomposer.py": {
+    "mtime": 1777848902.1480591,
+    "hash": "9cf61d60099866f72dbb9683f3e712de"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/fallback.py": {
+    "mtime": 1777669298.940732,
+    "hash": "7d2235de8b176ac059786fefeed1d737"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/shape_classifier.py": {
+    "mtime": 1777669298.9448237,
+    "hash": "57a815b7a0b1cfc030dcc9fec4e4ce77"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/qa_executor.py": {
+    "mtime": 1777669298.9431796,
+    "hash": "2024ba2350fb23c932f1a839b6b447e9"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/test_selector.py": {
+    "mtime": 1777571528.2917447,
+    "hash": "d7b0c8711e2128cb225169dd0db7ae47"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/test_streaming.py": {
+    "mtime": 1777571528.2918286,
+    "hash": "80bc472087a759dd3854baed07e3606c"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/test_validator.py": {
+    "mtime": 1777571528.2920108,
+    "hash": "73a54e624cd9a4472d3e5413eb68d863"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/test_streaming_async.py": {
+    "mtime": 1777571528.291915,
+    "hash": "dbf1e40db1c5df04620297351ba6c337"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/test_formatters.py": {
+    "mtime": 1777571528.291586,
+    "hash": "3ce5e05d5c1796255085c99646a1c01e"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/test_pipeline.py": {
+    "mtime": 1777571528.2916658,
+    "hash": "8f110c9bc116f055753c40f6e33d967c"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/test_classifier.py": {
+    "mtime": 1777571528.2914422,
+    "hash": "df701ebbd0ac0b8924dbd08ddb62d1ba"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_decomposer.py": {
+    "mtime": 1777669298.9459982,
+    "hash": "3caf65549f449e90983b6921dff20627"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_fusion_watcher.py": {
+    "mtime": 1777837705.7982602,
+    "hash": "202b844acb76d09214d1f01d34ccc6b1"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_chat_interviewers.py": {
+    "mtime": 1777669298.9456499,
+    "hash": "fbba535b7592acf43a64c9f2c3cb9d53"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_interviewer.py": {
+    "mtime": 1777669298.9465632,
+    "hash": "9c693bbd06e38cb51bf70b9da7275628"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_qa_retry.py": {
+    "mtime": 1777669298.9473665,
+    "hash": "1f9c7b32c81e78c7df6ae65cfb698f73"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_shape_classifier.py": {
+    "mtime": 1777669298.9479315,
+    "hash": "52ffcf120909bde21af30c35afcf15bb"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_task_decomposer.py": {
+    "mtime": 1777848902.1481957,
+    "hash": "bd838b46be9e6bf505f7590ea622d985"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_qa_state.py": {
+    "mtime": 1777669298.9475975,
+    "hash": "3557f5d3d3e7ad8bbc6ce2b7c536e36e"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_qa_test_parser.py": {
+    "mtime": 1777669298.9478438,
+    "hash": "8b91a48bd3c9809a3caf9aa7f3cab29a"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/__init__.py": {
+    "mtime": 1777669298.9455593,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_persona_selector.py": {
+    "mtime": 1777669298.9467406,
+    "hash": "bbc928b6b63cd53df547d9eb586698ef"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_task_classifier.py": {
+    "mtime": 1777669298.9480233,
+    "hash": "aa05e7026eedfa6e9dae66b1fb54de33"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_qa_executor.py": {
+    "mtime": 1777669298.9471872,
+    "hash": "8c832ef7dbe0943d5570759cef29c961"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_pipeline.py": {
+    "mtime": 1777669298.9468253,
+    "hash": "cb1d5fcd271fe5dbcb48d9e410943211"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/tests/router/test_pipeline_with_interview.py": {
+    "mtime": 1777669298.9468946,
+    "hash": "890d7548691e670ff22a30f5b8c1c735"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/MORNING_REVIEW.md": {
+    "mtime": 1777669298.9383717,
+    "hash": "55d7b62b854f75f900a26863a42dd581"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/README.md": {
+    "mtime": 1777571528.2886713,
+    "hash": "f1dbd90c232457958243a84306ac3c5c"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/SPEC.md": {
+    "mtime": 1777571528.2887876,
+    "hash": "6e4b80262aac59bc8c2fd8878ce5946d"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/AGENTS.md": {
+    "mtime": 1778630090.725615,
+    "hash": "96b7e4469a6b5a928d93a989972e51b1"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/README.md": {
+    "mtime": 1777669298.9397473,
+    "hash": "adf7cf22786447c5528f963487fc5ab6"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/personas/qa-system-prompt.md": {
+    "mtime": 1777669298.942291,
+    "hash": "ab0cd83292401ab473f8451d3d6d0717"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/neumann/router/personas/planner-system-prompt.md": {
+    "mtime": 1777669298.9418383,
+    "hash": "4a53100261b449c2a271517bb6cd0a34"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/docs/flows.html": {
+    "mtime": 1778630047.375954,
+    "hash": "aa46e09c33cd1540beacf04900e1a178"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/docs/specs/qa-failure-dashboard.md": {
+    "mtime": 1777669298.9395833,
+    "hash": "6fdc69bbf3a74a983b16de2e02d0d5e7"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/docs/specs/qa-agent.md": {
+    "mtime": 1777669298.9392536,
+    "hash": "c7cb581b61cc769a2df5eaa4278ffe84"
+  },
+  "/Users/coywolfden/coywolf/repos/neumann/docs/specs/pipeline-ordering.md": {
+    "mtime": 1777669298.9388711,
+    "hash": "ecf15655b5f1c6b1bd2d6328e3776a12"
+  }
+}
