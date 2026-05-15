@@ -17,6 +17,7 @@ planners plug in by setting ``planner=`` on ``RouterPipeline``.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import sys
 from dataclasses import asdict
@@ -147,10 +148,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.interview:
         interviewer = CLIInterviewer(allowed_orgs=tuple(args.allowed_orgs))
 
-    pipeline = RouterPipeline(
-        interviewer=interviewer,
-        allowed_orgs=tuple(args.allowed_orgs),
+    # Use real ClaudePlanner when OAuth token is available; fall back
+    # to default (MockPlanner) for offline/test usage. Allows --planner
+    # mock to force the stub for reproducibility.
+    planner = None
+    use_claude = (
+        getattr(args, "planner", None) != "mock"
+        and os.path.exists(os.path.expanduser("~/.claude/oauth-token"))
     )
+    if use_claude:
+        try:
+            from .claude_planner import ClaudePlanner
+            planner = ClaudePlanner()
+        except Exception as _e:
+            print(f"[cli] ClaudePlanner init failed; falling back to MockPlanner: {_e}", file=sys.stderr)
+            planner = None
+    pipeline_kwargs = {"interviewer": interviewer, "allowed_orgs": tuple(args.allowed_orgs)}
+    if planner is not None:
+        pipeline_kwargs["planner"] = planner
+    pipeline = RouterPipeline(**pipeline_kwargs)
 
     if args.cmd == "classify-shape":
         sd = pipeline.classify_shape(args.prompt)
