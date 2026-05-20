@@ -69,12 +69,30 @@ class ClaudePlanner:
         return "\n".join(parts)
 
     def _invoke_claude(self, system_prompt: str, user_prompt: str) -> str:
-        """Shell out to claude CLI via the OAuth wrapper. Returns raw stdout."""
+        """Shell out to claude CLI via the OAuth wrapper. Returns raw stdout.
+
+        --tools '' disables the entire built-in toolset for this call.
+        The Planner persona is a pure JSON producer (per personas/planner.json
+        Output Schema: "I emit exactly that JSON object — nothing before,
+        nothing after"); enabling Read/WebFetch/Agent invites tool-call
+        loops that stall the subprocess with zero stdout on long missions.
+        Observed 2026-05-20: a 12k-char Plan Mode transcript hung
+        ClaudePlanner past the 300s parent timeout with empty stdout/stderr.
+
+        --output-format text + --no-session-persistence keep output
+        deterministic and side-effect-free.
+        --exclude-dynamic-system-prompt-sections strips claude's own
+        system additions so only the Planner persona drives behavior.
+        """
         cmd = [
             CLAUDE_WRAPPER,
             CLAUDE_BIN,
             "-p",
             "--model", self.model,
+            "--tools", "",
+            "--output-format", "text",
+            "--no-session-persistence",
+            "--exclude-dynamic-system-prompt-sections",
             "--append-system-prompt", system_prompt,
         ]
         result = subprocess.run(
