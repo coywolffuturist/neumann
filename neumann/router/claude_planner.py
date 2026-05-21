@@ -162,13 +162,31 @@ class ClaudePlanner:
     def plan(self, prompt: str, context: dict[str, Any] | None = None) -> Plan:
         system_prompt = self._system_prompt()
         user_prompt = self._user_prompt(prompt, context)
-        raw = self._invoke_claude(system_prompt, user_prompt)
-        if self.debug:
-            print(f"[ClaudePlanner] raw response ({len(raw)} chars):", raw[:300])
-        try:
-            parsed = self._parse_json(raw)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(
-                f"ClaudePlanner could not parse JSON: {e.msg}; raw starts with: {raw[:300]}"
-            ) from e
-        return self._to_plan(parsed, prompt)
+        # Single retry on parse failure. Observed 2026-05-20: Opus occasionally
+        # emits malformed JSON (trailing comma, missing comma in nested array)
+        # despite the persona spec saying "I emit exactly that JSON object."
+        # A clean re-roll succeeds in the vast majority of cases. Without
+        # retry, one bad roll failed the entire mission compose — particularly
+        # painful now that Decomposer fans into N parallel sub-intents and ANY
+        # one of them bringing back malformed JSON tanks the whole batch.
+        last_err: Exception | None = None
+        for attempt in (1, 2):
+            raw = self._invoke_claude(system_prompt, user_prompt)
+            if self.debug:
+                print(f"[ClaudePlanner attempt {attempt}] raw response ({len(raw)} chars):", raw[:300])
+            try:
+                parsed = self._parse_json(raw)
+                return self._to_plan(parsed, prompt)
+            except json.JSONDecodeError as e:
+                last_err = e
+                if attempt == 1:
+                    # Re-roll silently — fresh subprocess, fresh roll. Don't
+                    # change the prompt; the Planner persona itself is what
+                    # demands strict JSON, and adding "fix your last JSON"
+                    # turns this into a multi-turn loop that often makes
+                    # things worse.
+                    continue
+        raise RuntimeError(
+            f"ClaudePlanner could not parse JSON after 2 attempts: "
+            f"{last_err.msg if last_err else 'unknown'}; raw starts with: {raw[:300]}"
+        ) from last_err

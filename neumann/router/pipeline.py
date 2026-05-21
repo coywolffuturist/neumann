@@ -25,9 +25,21 @@ See ``docs/specs/pipeline-ordering.md`` for the full design.
 from __future__ import annotations
 
 import hashlib
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
+
+# Cap on concurrent ClaudePlanner subprocess calls when the Decomposer fans
+# the mission into multiple sub_intents. Sequential execution was the load-
+# bearing bottleneck: ~80s per sub_intent × 9 sub_intents = 720s observed
+# 2026-05-20 on the GMX Nexus session, causing every COMPOSE to SIGTERM at
+# the Lucid-side 300s timeout. Each ClaudePlanner call shells to an
+# independent `claude -p` subprocess against the same OAuth token, so
+# concurrency is safe up to whatever Anthropic's per-account quota allows.
+# 6 is the comfortable default; override with NEUMANN_MAX_PARALLEL_PLANNERS.
+NEUMANN_MAX_PARALLEL_PLANNERS = int(os.environ.get("NEUMANN_MAX_PARALLEL_PLANNERS", "6"))
 
 from .context_resolver import ContextResolver
 from .decomposer import Decomposer
@@ -180,15 +192,31 @@ class RouterPipeline:
             sub_intents = self.decomposer.decompose(confirmed)
             _t.skill('decomposer', 'success', int((time.perf_counter() - t0) * 1000))
 
-            all_tasks: list[PlannedTask] = []
-            sub_plans: list[Plan] = []
-            for sub_intent in sub_intents:
+            # Run ClaudePlanner concurrently across all sub_intents. Each
+            # call is independent (own context, own subprocess, no shared
+            # mutable state). ThreadPoolExecutor is the right shape since
+            # the work is I/O-bound — every call spends ~80s waiting on
+            # the claude subprocess to return. ex.map preserves order, so
+            # sub_plans remains aligned with sub_intents indices.
+            def _plan_one_sub_intent(sub_intent):
                 planner_context = {**env, "confirmed_intent": sub_intent}
                 t0 = time.perf_counter()
                 sub_plan = self.planner.plan(
                     sub_intent.confirmed_intent, context=planner_context
                 )
-                _t.skill('planner', 'success', int((time.perf_counter() - t0) * 1000))
+                return sub_plan, int((time.perf_counter() - t0) * 1000)
+
+            max_workers = max(1, min(len(sub_intents), NEUMANN_MAX_PARALLEL_PLANNERS))
+            if max_workers > 1 and len(sub_intents) > 1:
+                with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="neumann-planner") as ex:
+                    results = list(ex.map(_plan_one_sub_intent, sub_intents))
+            else:
+                results = [_plan_one_sub_intent(si) for si in sub_intents]
+
+            all_tasks: list[PlannedTask] = []
+            sub_plans: list[Plan] = []
+            for sub_plan, dur_ms in results:
+                _t.skill('planner', 'success', dur_ms)
                 sub_plans.append(sub_plan)
                 all_tasks.extend(sub_plan.tasks)
 
