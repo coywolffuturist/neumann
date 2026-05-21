@@ -8,3 +8,4 @@ __pycache__/
 # Graphify SHA256 cache (per-file; rebuildable from source)
 graphify-out/cache/
 .lucid/
+graphify-out/
